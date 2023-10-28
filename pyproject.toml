@@ -29,6 +29,7 @@ scipy = "^1.11.1"
 SimpleITK = "^2.2.1"
 torch = "^2.0.1"
 torchvision = "^0.15.2"
+voxynth = { git = "https://github.com/CPBridge/voxynth.git", rev = "8ef968727dc371f33238b6bbe3df6491ff4a85bf" }
 
 [tool.poetry.group.dev.dependencies]
 # dev dependencies are those used when developing the package but are not needed

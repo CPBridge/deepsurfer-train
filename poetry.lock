@@ -3168,6 +3168,25 @@ docs = ["furo (>=2023.7.26)", "proselint (>=0.13)", "sphinx (>=7.1.2)", "sphinx-
 test = ["covdefaults (>=2.3)", "coverage (>=7.2.7)", "coverage-enable-subprocess (>=1)", "flaky (>=3.7)", "packaging (>=23.1)", "pytest (>=7.4)", "pytest-env (>=0.8.2)", "pytest-freezer (>=0.4.8)", "pytest-mock (>=3.11.1)", "pytest-randomly (>=3.12)", "pytest-timeout (>=2.1)", "setuptools (>=68)", "time-machine (>=2.10)"]
 
 [[package]]
+name = "voxynth"
+version = "0.0.0"
+description = "Deep-learning utilites for 2D and 3D image synthesis and augmentation"
+optional = false
+python-versions = ">=3.6"
+files = []
+develop = false
+
+[package.dependencies]
+numpy = "*"
+torch = "*"
+
+[package.source]
+type = "git"
+url = "https://github.com/CPBridge/voxynth.git"
+reference = "8ef968727dc371f33238b6bbe3df6491ff4a85bf"
+resolved_reference = "8ef968727dc371f33238b6bbe3df6491ff4a85bf"
+
+[[package]]
 name = "wcwidth"
 version = "0.2.8"
 description = "Measures the displayed width of unicode strings in a terminal"
@@ -3223,4 +3242,4 @@ test = ["websockets"]
 [metadata]
 lock-version = "2.0"
 python-versions = "~3.10"
-content-hash = "a9edeccc2790d9fc49ac5aebaa1ec054ce9162b8a53ccbc91c23ea8a63be3bda"
+content-hash = "b41dcadab7b0db6298ae6279d64adebf044d5ebc96bcc36686fc3bc20ef473e2"
