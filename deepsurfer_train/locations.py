@@ -15,7 +15,7 @@ if sys.platform == "darwin":
 else:
     # Linux servers and containers
     project_dir = Path("/autofs/cluster/qtim/projects/deepsurfer")
-    project_dataset_dir = Path("/autofs/cluster/freesurfer/test_data")
+    project_dataset_dir = Path("/autofs/vast/freesurfer/test_data/")
 
 
 # Issue a warning here if the project locations don't exist
