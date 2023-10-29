@@ -1,0 +1,6 @@
+{
+    "dataset": "buckner40",
+    "processed_version": null,
+    "excluded_regions": ["FIFTH_VENTRICLE", "NON_WM_HYPOINTENSITIES"],
+    "imsize": 256
+}

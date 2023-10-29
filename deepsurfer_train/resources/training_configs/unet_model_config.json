@@ -1,0 +1,16 @@
+{
+    "batch_size": 4,
+    "optimzer": "Adam",
+    "optimzer_params": {
+        "lr": 1e-3
+    },
+    "scheduler": "ReduceLROnPlateau",
+    "scheduler_params": {
+        "factor": 0.1,
+        "patience": 15
+    },
+    "unet_paramss": {
+        "channels": [32, 32, 64, 64, 64, 64, 64, 64],
+        "strides": [1, 2, 1, 2, 1, 2, 1]
+    }
+}

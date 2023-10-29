@@ -9,11 +9,51 @@ from typeguard import typechecked
 
 from deepsurfer_train import locations
 from deepsurfer_train.data import list_segmentation_files
-from deepsurfer_train.enums import DatasetPartition
+from deepsurfer_train.enums import DatasetPartition, BrainRegions
 from deepsurfer_train.preprocess.transforms import (
     SynthTransformd,
     VoxynthAugmentd,
 )
+
+
+DEFAULT_EXCLUDED_REGIONS = ("FIFTH_VENTRICLE", "NON_WM_HYPOINTENSITIES")
+
+
+def get_label_mapping(
+    excluded_regions: Sequence[BrainRegions] | None = None,
+) -> tuple[dict[int, int], dict[int, int]]:
+    """Get a mapping between original label and "internal" label.
+
+    The "internal" set of labels is consecutive, starting at 1, and omits
+    any excluded labels.
+
+    Parameters
+    ----------
+    excluded_regions: Sequence[deepsurfer_train.enums.BrainRegions] | None
+        Regions to exclude from the output labels.
+
+    Returns
+    -------
+    dict[int, int]:
+        Mapping of all original label values to internal labels.
+    dict[int, int]:
+        Mapping of internal label values to non-excluded original labels.
+
+    """
+    mapping: dict[int, int] = {}
+    inverse_mapping: dict[int, int] = {}
+    next_label = 1
+    excluded_regions = [] if excluded_regions is None else []
+    for label in BrainRegions:
+        if label in excluded_regions:
+            # Map this value to zero
+            mapping[label.value] = 0
+        else:
+            inverse_mapping[next_label] = label.value
+            mapping[label.value] = next_label
+            next_label += 1
+
+    return mapping, inverse_mapping
 
 
 @typechecked
@@ -27,6 +67,8 @@ class DeepsurferSegmentationDataset(monai.data.CacheDataset):
         processed_version: str | None = None,
         root_dir: Path | str = locations.project_dataset_dir,
         imsize: Sequence[int] | int = 255,
+        excluded_regions: Sequence[BrainRegions | str]
+        | None = DEFAULT_EXCLUDED_REGIONS,
         use_spatial_augmentation: bool = False,
         use_intensity_augmentation: bool = False,
         synth_probability: float = 0.0,
@@ -49,6 +91,8 @@ class DeepsurferSegmentationDataset(monai.data.CacheDataset):
             The root directory of all datasets.
         imsize: Sequence[int] | int
             Image size in pixels.
+        excluded_regions: Sequence[deepsurfer_train.enums.BrainRegions | str] | None
+            Brain regions to omit from the segmentation masks.
         use_spatial_augmentation: bool
             Whether to augment images and masks with spatial transforms.
         use_intensity_augmentation: bool
@@ -76,6 +120,15 @@ class DeepsurferSegmentationDataset(monai.data.CacheDataset):
                 "Argument 'synth_probability' must be between 0.0 and 1.0."
             )
 
+        excluded_regions = [] if excluded_regions is None else excluded_regions
+        excluded_regions_ = [
+            r if isinstance(r, BrainRegions) else BrainRegions[r]
+            for r in excluded_regions
+        ]
+        self.label_mapping, self.inverse_label_map = get_label_mapping(
+            excluded_regions_
+        )
+
         image_key = "orig"
         mask_key = "aseg"
         all_keys = [image_key, mask_key]
@@ -91,6 +144,13 @@ class DeepsurferSegmentationDataset(monai.data.CacheDataset):
                 image_only=True,
             )
         )
+        transforms.append(
+            monai.transforms.MapLabelValued(
+                keys=mask_key,
+                orig_labels=list(self.label_mapping.keys()),
+                target_labels=list(self.label_mapping.values()),
+            )
+        )
 
         if use_gpu:
             device = torch.device("cuda:0")
@@ -98,8 +158,7 @@ class DeepsurferSegmentationDataset(monai.data.CacheDataset):
         else:
             device = torch.device("cpu")
 
-        # Scale intensity from input range (assumed to be 0 to
-        # _max_input_intensity), to 0-1
+        # Scale intensity from input range
         transforms.append(
             monai.transforms.ScaleIntensityRanged(
                 keys=[image_key],
@@ -114,7 +173,7 @@ class DeepsurferSegmentationDataset(monai.data.CacheDataset):
         transforms.append(
             monai.transforms.Orientationd(
                 keys=all_keys,
-                axcodes="PIL",
+                axcodes="PLI",
                 lazy=True,
             )
         )
@@ -177,3 +236,35 @@ class DeepsurferSegmentationDataset(monai.data.CacheDataset):
         composed_transforms = monai.transforms.Compose(transforms)
 
         super().__init__(elements_list, composed_transforms)
+
+        # A transform that can be used to map the data back to the original
+        self.inverse_label_map_transform = monai.transforms.MapLabelValue(
+            orig_labels=list(self.inverse_label_map.keys()),
+            target_labels=list(self.inverse_label_map.values()),
+        )
+
+    def get_region_label(self, label: int) -> BrainRegions:
+        """Get the original label for an internal label pixel value.
+
+        Parameters
+        ----------
+        label: int
+            Internal label value (used in segmentation masks).
+
+        Returns
+        -------
+        deepsurfer_train.enums.BrainRegions:
+            Original label corresponding to the input label.
+
+        """
+        return BrainRegions(self.inverse_label_map[label])
+
+    @property
+    def n_foreground_labels(self) -> int:
+        """int: Number of foreground labels in segmentation masks."""
+        return len(self.inverse_label_map)
+
+    @property
+    def n_total_labels(self) -> int:
+        """int: Number of total labels (inc background) in segmentation masks."""
+        return self.n_foreground_labels + 1

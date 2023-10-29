@@ -7,10 +7,12 @@ import click
 from pycrumbs import tracked
 
 from deepsurfer_train import locations
+from deepsurfer_train.train.training_loop import training_loop
 
 
 @click.command()
-@click.argument("config_file")
+@click.argument("data_config_file")
+@click.argument("model_config_file")
 @click.argument("model_name")
 @click.option("--seed", "-s", type=int, help="Random seed to use.")
 @tracked(
@@ -21,7 +23,8 @@ from deepsurfer_train import locations
     directory_injection_parameter="model_output_dir",
 )
 def train(
-    config_file: str,
+    data_config_file: str,
+    model_config_file: str,
     model_name: str,
     model_output_dir: Path,
     seed: Optional[int] = None,
@@ -31,24 +34,42 @@ def train(
     This will create a new directory in the checkpoints directory containing
     model weights and any other files associated with model training.
 
-    CONFIG_FILE is the name of the config file within the repo's training
-    config directory containing all parameters for the training job.
+    DATA_CONFIG_FILE contains parameters of the dataset, and MODEL_CONFIF
+    contains parameters of the model and training process. Both are specified
+    as names (without path) of the config file within the repo's training
+    config directory.
 
     MODEL_NAME is a free text string that names the model. The output will be
     placed in a directory with this name.
 
     """
-    # Read in the config file
-    if not config_file.lower().endswith(".json"):
-        config_file += ".json"
-    config_path = locations.train_configs_dir / config_file
-    with config_path.open("r") as jf:
-        config = json.load(jf)
+    # Read in the model config file
+    if not model_config_file.lower().endswith(".json"):
+        model_config_file += ".json"
+    model_config_path = locations.train_configs_dir / model_config_file
+    with model_config_path.open("r") as jf:
+        model_config = json.load(jf)
 
     # Stash the configuration in the output directory
-    config_copy = model_output_dir / "train_config.json"
-    with config_copy.open("w") as jf:
-        json.dump(config, jf, indent=4)
+    model_config_copy = model_output_dir / "model_config.json"
+    with model_config_copy.open("w") as jf:
+        json.dump(model_config, jf, indent=4)
+
+    # Read in the data config file
+    if not data_config_file.lower().endswith(".json"):
+        data_config_file += ".json"
+    data_config_path = locations.train_configs_dir / data_config_file
+    with data_config_path.open("r") as jf:
+        data_config = json.load(jf)
+
+    # Stash the configuration in the output directory
+    data_config_copy = model_output_dir / "data_config.json"
+    with data_config_copy.open("w") as jf:
+        json.dump(data_config, jf, indent=4)
 
     # Actual training code goes here...
-    pass
+    training_loop(
+        data_config=data_config,
+        model_config=model_config,
+        output_dir=model_output_dir,
+    )
