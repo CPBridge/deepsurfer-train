@@ -233,6 +233,13 @@ class DeepsurferSegmentationDataset(monai.data.CacheDataset):
                 )
             )
 
+        transforms.append(
+            monai.transforms.AsDiscreted(
+                keys=["aseg"],
+                to_onehot=len(self.inverse_label_mapping) + 1,
+            )
+        )
+
         composed_transforms = monai.transforms.Compose(transforms)
 
         super().__init__(elements_list, composed_transforms)

@@ -3,7 +3,10 @@ from pathlib import Path
 from typing import Any
 
 from monai.networks.nets import UNet
+from monai.losses import DiceLoss
+import numpy as np
 import torch
+from torch.utils.tensorboard import SummaryWriter
 
 
 from deepsurfer_train.enums import DatasetPartition
@@ -28,6 +31,7 @@ def training_loop(
 
     """
     use_gpu = True
+    output_dir = Path(output_dir)
 
     # Set up dataset
     train_dataset = DeepsurferSegmentationDataset(
@@ -74,6 +78,13 @@ def training_loop(
         out_channels=train_dataset.n_total_labels,
         **model_config["unet_params"],
     )
+    model = model.cuda()
+
+    loss_fn = DiceLoss(
+        include_background=False,
+        softmax=True,
+        squared_pred=True,
+    )
 
     # Set up optimizer and scheduler
     optimizer_cls = getattr(torch.optim, model_config["optimizer"])
@@ -88,5 +99,49 @@ def training_loop(
     )
 
     # Set up tensorboard log
+    tensorboard_dir = output_dir / "tensorboard"
+    writer = SummaryWriter(log_dir=tensorboard_dir)
+    weights_dir = output_dir / "checkpoints"
+    weights_dir.mkdir(exist_ok=True)
 
     # Begin loop
+    print("Starting training")
+    for e in range(model_config["epochs"]):
+
+        model.train()
+        optimizer.zero_grad()
+        batch_losses = []
+
+        for batch in train_loader:
+
+            prediction = model(batch["orig"])
+            loss = loss_fn(prediction)
+
+            optimizer.step()
+            optimizer.zero_grad()
+
+            batch_losses.append(loss.detach().cpu().item())
+
+        epoch_loss = np.mean(batch_losses)
+        writer.add_scalar("loss/train", epoch_loss, e)
+        print(f"Epoch {e}, train loss {epoch_loss:.4f}")
+
+        model.eval()
+        batch_losses = []
+        with torch.no_grad():
+
+            for batch in val_loader:
+
+                prediction = model(batch["orig"])
+                loss = loss_fn(prediction)
+
+                batch_losses.append(loss.detach().cpu().item())
+
+            epoch_loss = np.mean(batch_losses)
+            writer.add_scalar("loss/val", epoch_loss, e)
+            print(f"Epoch {e}, val loss {epoch_loss:.4f}")
+
+        writer.add_scalar("learning_rate", scheduler.optimizer.param_groups[0]["lr"], e)
+        scheduler.step(epoch_loss)
+
+        torch.save(model.state_dict(), weights_dir / f"weights_{e:04d}.pt")
