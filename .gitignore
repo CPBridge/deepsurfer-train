@@ -34,6 +34,9 @@ share/python-wheels/
 .installed.cfg
 *.egg
 
+# vim
+*.swp
+
 # Spyder project settings
 .spyderproject
 .spyproject

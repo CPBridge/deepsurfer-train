@@ -9,7 +9,7 @@ what options are available, and enums may be iterated through.
 from enum import Enum
 
 
-class DatasetSplit(Enum):
+class DatasetPartition(Enum):
     """Enum listing partitions of the dataset."""
 
     TRAIN = "TRAIN"
