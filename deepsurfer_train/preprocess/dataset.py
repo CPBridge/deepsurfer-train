@@ -29,7 +29,7 @@ class DeepsurferSegmentationDataset(monai.data.Dataset):
         imsize: Sequence[int] | int = 255,
         use_spatial_augmentation: bool = False,
         use_intensity_augmentation: bool = False,
-        synth_probability: float = 1.0,
+        synth_probability: float = 0.0,
         use_gpu: bool = True,
     ):
         """Dataset class encapsulate loading and tranforming data.
