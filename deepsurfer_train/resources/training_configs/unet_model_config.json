@@ -1,5 +1,5 @@
 {
-    "batch_size": 4,
+    "batch_size": 1,
     "optimzer": "Adam",
     "optimzer_params": {
         "lr": 1e-3
