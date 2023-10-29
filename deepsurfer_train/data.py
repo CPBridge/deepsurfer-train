@@ -4,7 +4,6 @@ from pathlib import Path
 from deepsurfer_train import locations
 from deepsurfer_train.enums import DatasetPartition
 
-
 DATASETS_AVAILABLE = [
     "buckner40",
 ]
@@ -89,7 +88,7 @@ def list_segmentation_files(
     partition: DatasetPartition | str | None,
     processed_version: str | None = None,
     root_dir: Path | str = locations.project_dataset_dir,
-) -> list[dict[str, Path]]:
+) -> list[dict[str, Path | str]]:
     """List segmentation files in format needed for monai dataset.
 
     Parameters
@@ -128,12 +127,10 @@ def list_segmentation_files(
 
     data_dir = processed_dir / processed_version
     if not data_dir.exists():
-        raise FileNotFoundError(
-            f"Data directory not found: {data_dir}"
-        )
+        raise FileNotFoundError(f"Data directory not found: {data_dir}")
 
     if partition is None:
-        subjects = sum(SPLITS[dataset].values(), [])
+        subjects: list[str] = sum(SPLITS[dataset].values(), [])
     else:
         partition = DatasetPartition(partition)
         subjects = SPLITS[dataset][partition]
@@ -144,12 +141,10 @@ def list_segmentation_files(
         subj_dir = data_dir / subj
         orig = subj_dir / "mri" / "orig.mgz"
         aseg = subj_dir / "mri" / "aseg.mgz"
-        subj_data = {"orig": orig, "aseg": aseg}
-        for name, path in subj_data.items():
+        subj_data: dict[str, Path | str] = {"orig": orig, "aseg": aseg}
+        for path in [orig, aseg]:
             if not path.exists():
-                raise FileNotFoundError(
-                     f"File {k} not found at {str(path)}."
-                )
+                raise FileNotFoundError(f"No file found at {str(path)}.")
         subj_data["subject_id"] = subj_dir.name
         data.append(subj_data)
 
