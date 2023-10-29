@@ -17,7 +17,7 @@ from deepsurfer_train.preprocess.transforms import (
 
 
 @typechecked
-class DeepsurferSegmentationDataset(monai.data.Dataset):
+class DeepsurferSegmentationDataset(monai.data.CacheDataset):
     """Dataset for use with segmentation problems."""
 
     def __init__(
