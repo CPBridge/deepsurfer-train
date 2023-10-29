@@ -43,7 +43,7 @@ def get_label_mapping(
     mapping: dict[int, int] = {}
     inverse_mapping: dict[int, int] = {}
     next_label = 1
-    excluded_regions = [] if excluded_regions is None else []
+    excluded_regions = [] if excluded_regions is None else excluded_regions
     for label in BrainRegions:
         if label in excluded_regions:
             # Map this value to zero
@@ -125,7 +125,7 @@ class DeepsurferSegmentationDataset(monai.data.CacheDataset):
             r if isinstance(r, BrainRegions) else BrainRegions[r]
             for r in excluded_regions
         ]
-        self.label_mapping, self.inverse_label_map = get_label_mapping(
+        self.label_mapping, self.inverse_label_mapping = get_label_mapping(
             excluded_regions_
         )
 
@@ -239,8 +239,8 @@ class DeepsurferSegmentationDataset(monai.data.CacheDataset):
 
         # A transform that can be used to map the data back to the original
         self.inverse_label_map_transform = monai.transforms.MapLabelValue(
-            orig_labels=list(self.inverse_label_map.keys()),
-            target_labels=list(self.inverse_label_map.values()),
+            orig_labels=list(self.inverse_label_mapping.keys()),
+            target_labels=list(self.inverse_label_mapping.values()),
         )
 
     def get_region_label(self, label: int) -> BrainRegions:
@@ -257,12 +257,12 @@ class DeepsurferSegmentationDataset(monai.data.CacheDataset):
             Original label corresponding to the input label.
 
         """
-        return BrainRegions(self.inverse_label_map[label])
+        return BrainRegions(self.inverse_label_mapping[label])
 
     @property
     def n_foreground_labels(self) -> int:
         """int: Number of foreground labels in segmentation masks."""
-        return len(self.inverse_label_map)
+        return len(self.inverse_label_mapping)
 
     @property
     def n_total_labels(self) -> int:
