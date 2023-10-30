@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 
+#SBATCH -o /homes/8/cpb28/slurm_log/deepsurfer-train-%j.out
 #SBATCH -J deepsurfer-train-train
 #SBATCH -p rtx8000
 #SBATCH -A qtim

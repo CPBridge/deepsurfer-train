@@ -1,6 +1,6 @@
 {
     "epochs": 1000,
-    "batch_size": 2,
+    "batch_size": 1,
     "batches_per_epoch": 1000,
     "optimizer": "Adam",
     "optimizer_params": {
@@ -12,7 +12,7 @@
         "patience": 15
     },
     "unet_params": {
-        "channels": [16, 16, 32, 32, 64, 64, 96],
-        "strides": [1, 2, 1, 2, 1, 2]
+        "channels": [16, 16, 32, 32, 64, 64, 128],
+        "strides": [2, 2, 2, 2, 2, 2]
     }
 }
