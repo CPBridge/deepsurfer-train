@@ -1,12 +1,16 @@
 #!/usr/bin/env bash
 
 #SBATCH -J deepsurfer-train-train
-#SBATCH -p rtx6000
+#SBATCH -p rtx8000
 #SBATCH -A defq
 #SBATCH -n 1
-#SBATCH --cpus-per-task=8
+#SBATCH --cpus-per-task=4
 #SBATCH --gres=gpu:1
-#SBATCH -t 72:00:00
+#SBATCH -t 48:00:00
+#SBATCH --mem=40G
 
-export LD_LIBRARY_PATH="/usr/pubsw/packages/CUDA/11.2/targets/x86_64-linux/lib/"
-deepsurfer-train train example my_model_name
+export PYENV_VERSION="deepsurfer-train"
+python -m deepsurfer_train train \
+    default_data_config.json \
+    unet_model_config.json \
+    basic_unet
