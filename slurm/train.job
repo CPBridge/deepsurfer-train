@@ -2,7 +2,7 @@
 
 #SBATCH -J deepsurfer-train-train
 #SBATCH -p rtx8000
-#SBATCH -A defq
+#SBATCH -A qtim
 #SBATCH -n 1
 #SBATCH --cpus-per-task=4
 #SBATCH --gres=gpu:1
