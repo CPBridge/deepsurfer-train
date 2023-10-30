@@ -2,6 +2,7 @@
 from pathlib import Path
 from typing import Any
 
+from monai.visualize.utils import blend_images
 from monai.networks.nets import UNet
 from monai.losses import DiceLoss
 import numpy as np
@@ -10,6 +11,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 
 from deepsurfer_train.enums import DatasetPartition
+from deepsurfer_train import locations
 from deepsurfer_train.preprocess.dataset import DeepsurferSegmentationDataset
 
 
@@ -33,12 +35,14 @@ def training_loop(
     use_gpu = True
     output_dir = Path(output_dir)
 
+    print("Output dir:", output_dir.resolve())
+
     # Set up dataset
     train_dataset = DeepsurferSegmentationDataset(
         dataset=data_config["dataset"],
         partition=DatasetPartition.TRAIN,
         processed_version=data_config.get("processed_version", None),
-        root_dir=data_config.get("root_dir", None),
+        root_dir=data_config.get("root_dir", locations.project_dataset_dir),
         imsize=data_config["imsize"],
         use_spatial_augmentation=True,
         use_intensity_augmentation=True,
@@ -49,7 +53,7 @@ def training_loop(
         dataset=data_config["dataset"],
         partition=DatasetPartition.VALIDATION,
         processed_version=data_config.get("processed_version", None),
-        root_dir=data_config.get("root_dir", None),
+        root_dir=data_config.get("root_dir", locations.project_dataset_dir),
         imsize=data_config["imsize"],
         use_spatial_augmentation=False,
         use_intensity_augmentation=False,
@@ -57,18 +61,29 @@ def training_loop(
         use_gpu=use_gpu,
     )
 
+    # Choose a slice to display
+    if isinstance(data_config["imsize"], int):
+        display_slice = data_config["imsize"] // 2
+    else:
+        display_slice = data_config["imsize"][2] // 2
+
     # Set up data loader
     batch_size = model_config["batch_size"]
+    batches_per_epoch = model_config["batches_per_epoch"]
+    samples_per_epoch = batches_per_epoch * batch_size
     train_loader = torch.utils.data.DataLoader(
         train_dataset,
         batch_size=batch_size,
-        shuffle=True,
+        sampler=torch.utils.data.RandomSampler(
+            range(len(train_dataset)),
+            replacement=False,
+            num_samples=samples_per_epoch,
+        )
     )
 
     val_loader = torch.utils.data.DataLoader(
         val_dataset,
         batch_size=batch_size,
-        shuffle=False,
     )
 
     # Set up model
@@ -115,7 +130,8 @@ def training_loop(
         for batch in train_loader:
 
             prediction = model(batch["orig"])
-            loss = loss_fn(prediction)
+            loss = loss_fn(prediction, batch["aseg"])
+            loss.backward()
 
             optimizer.step()
             optimizer.zero_grad()
@@ -133,15 +149,32 @@ def training_loop(
             for batch in val_loader:
 
                 prediction = model(batch["orig"])
-                loss = loss_fn(prediction)
+                loss = loss_fn(prediction, batch["aseg"])
 
                 batch_losses.append(loss.detach().cpu().item())
+
+                labelmap = prediction.argmax(axis=1, keepdim=True).cpu()
+                for b in range(batch_size):
+                    blend = blend_images(
+                        batch["orig"][b, :, :, :, display_slice].cpu(),
+                        labelmap[b, :, :, :, display_slice],
+                        cmap="tab20",
+                    )
+                    writer.add_image(
+                        f"predictions/{batch['subject_id']}",
+                        blend,
+                        e,
+                    )
 
             epoch_loss = np.mean(batch_losses)
             writer.add_scalar("loss/val", epoch_loss, e)
             print(f"Epoch {e}, val loss {epoch_loss:.4f}")
 
-        writer.add_scalar("learning_rate", scheduler.optimizer.param_groups[0]["lr"], e)
+        writer.add_scalar(
+            "learning_rate",
+            scheduler.optimizer.param_groups[0]["lr"],
+            e,
+        )
         scheduler.step(epoch_loss)
 
         torch.save(model.state_dict(), weights_dir / f"weights_{e:04d}.pt")

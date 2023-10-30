@@ -1,7 +1,9 @@
 {
-    "batch_size": 1,
-    "optimzer": "Adam",
-    "optimzer_params": {
+    "epochs": 1000,
+    "batch_size": 2,
+    "batches_per_epoch": 1000,
+    "optimizer": "Adam",
+    "optimizer_params": {
         "lr": 1e-3
     },
     "scheduler": "ReduceLROnPlateau",
@@ -9,8 +11,8 @@
         "factor": 0.1,
         "patience": 15
     },
-    "unet_paramss": {
-        "channels": [32, 32, 64, 64, 64, 64, 64, 64],
-        "strides": [1, 2, 1, 2, 1, 2, 1]
+    "unet_params": {
+        "channels": [16, 16, 32, 32, 64, 64, 96],
+        "strides": [1, 2, 1, 2, 1, 2]
     }
 }

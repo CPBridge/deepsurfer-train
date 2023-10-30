@@ -2,8 +2,26 @@ from typing import Any, Hashable, Tuple
 
 import torch
 import voxynth
-from monai.transforms import MapTransform, RandomizableTransform
+from monai.transforms import (
+    Identityd,
+    MapTransform,
+    RandomizableTransform,
+)
 from typeguard import typechecked
+
+
+@typechecked
+class RandomizableIdentityd(Identityd, RandomizableTransform):
+    """Nasty hack.
+
+    This class is a "randomizable" transform that simple returns
+    its input. Its purpose is to put a user-controlled break
+    where the user wishes in a transform pipeline for a
+    CacheDataset (the first RandomizableTransform triggers)
+    the end of the cached operation.
+
+    """
+    pass
 
 
 @typechecked
