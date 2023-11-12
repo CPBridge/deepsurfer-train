@@ -33,6 +33,7 @@ voxynth = { git = "https://github.com/CPBridge/voxynth.git", rev = "8ef968727dc3
 matplotlib = "^3.8.0"
 nibabel = "^5.1.0"
 tensorboard = "^2.15.0"
+tqdm = "^4.0.0"
 
 [tool.poetry.group.dev.dependencies]
 # dev dependencies are those used when developing the package but are not needed

@@ -47,6 +47,7 @@ def training_loop(
         use_spatial_augmentation=True,
         use_intensity_augmentation=True,
         synth_probability=data_config["synth_probability"],
+        excluded_regions=data_config.get("excluded_regions"),
         use_gpu=use_gpu,
     )
     val_dataset = DeepsurferSegmentationDataset(
@@ -58,6 +59,7 @@ def training_loop(
         use_spatial_augmentation=False,
         use_intensity_augmentation=False,
         synth_probability=0.0,  # ?
+        excluded_regions=data_config.get("excluded_regions"),
         use_gpu=use_gpu,
     )
 
@@ -78,7 +80,7 @@ def training_loop(
             range(len(train_dataset)),
             replacement=False,
             num_samples=samples_per_epoch,
-        )
+        ),
     )
 
     val_loader = torch.utils.data.DataLoader(
@@ -122,21 +124,34 @@ def training_loop(
     # Begin loop
     print("Starting training")
     for e in range(model_config["epochs"]):
-
         model.train()
         optimizer.zero_grad()
         batch_losses = []
 
         for batch in train_loader:
-
-            prediction = model(batch["orig"])
-            loss = loss_fn(prediction, batch["aseg"])
+            prediction = model(batch[train_dataset.image_key])
+            loss = loss_fn(prediction, batch[train_dataset.mask_key])
             loss.backward()
 
             optimizer.step()
             optimizer.zero_grad()
 
             batch_losses.append(loss.detach().cpu().item())
+            if data_config.get("write_training_images", False):
+                gt_labelmap = (
+                    batch[train_dataset.mask_key].argmax(axis=1, keepdim=True).cpu()
+                )
+                for b in range(batch_size):
+                    blend = blend_images(
+                        batch[train_dataset.image_key][b, :, :, :, display_slice].cpu(),
+                        gt_labelmap[b, :, :, :, display_slice],
+                        cmap="tab20",
+                    )
+                    writer.add_image(
+                        f"train_subject_{batch['subject_id'][b]}/train_image",
+                        blend,
+                        e,
+                    )
 
         epoch_loss = np.mean(batch_losses)
         writer.add_scalar("loss/train", epoch_loss, e)
@@ -145,26 +160,41 @@ def training_loop(
         model.eval()
         batch_losses = []
         with torch.no_grad():
-
             for batch in val_loader:
-
-                prediction = model(batch["orig"])
-                loss = loss_fn(prediction, batch["aseg"])
+                prediction = model(batch[val_dataset.image_key])
+                loss = loss_fn(prediction, batch[val_dataset.mask_key])
 
                 batch_losses.append(loss.detach().cpu().item())
 
                 labelmap = prediction.argmax(axis=1, keepdim=True).cpu()
+                if e == 0:
+                    gt_labelmap = (
+                        batch[val_dataset.mask_key].argmax(axis=1, keepdim=True).cpu()
+                    )
                 for b in range(batch_size):
                     blend = blend_images(
-                        batch["orig"][b, :, :, :, display_slice].cpu(),
+                        batch[val_dataset.image_key][b, :, :, :, display_slice].cpu(),
                         labelmap[b, :, :, :, display_slice],
                         cmap="tab20",
                     )
                     writer.add_image(
-                        f"predictions/{batch['subject_id']}",
+                        f"val_subject_{batch['subject_id'][b]}/prediction",
                         blend,
                         e,
                     )
+                    if e == 0:
+                        blend = blend_images(
+                            batch[val_dataset.image_key][
+                                b, :, :, :, display_slice
+                            ].cpu(),
+                            gt_labelmap[b, :, :, :, display_slice],
+                            cmap="tab20",
+                        )
+                        writer.add_image(
+                            f"val_subject_{batch['subject_id'][b]}/ground_truth",
+                            blend,
+                            e,
+                        )
 
             epoch_loss = np.mean(batch_losses)
             writer.add_scalar("loss/val", epoch_loss, e)
@@ -175,6 +205,10 @@ def training_loop(
             scheduler.optimizer.param_groups[0]["lr"],
             e,
         )
-        scheduler.step(epoch_loss)
+        if isinstance(scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+            # special case: need to pass loss to step method
+            scheduler.step(epoch_loss)
+        else:
+            scheduler.step()
 
         torch.save(model.state_dict(), weights_dir / f"weights_{e:04d}.pt")

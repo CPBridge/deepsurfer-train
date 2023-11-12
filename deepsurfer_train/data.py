@@ -83,8 +83,9 @@ def get_latest_fs_version(processed_dir: Path | str) -> str:
     return sorted(fs_versions)[-1]
 
 
-def list_segmentation_files(
+def list_dataset_files(
     dataset: str,
+    filenames: list[str],
     partition: DatasetPartition | str | None,
     processed_version: str | None = None,
     root_dir: Path | str = locations.project_dataset_dir,
@@ -94,7 +95,13 @@ def list_segmentation_files(
     Parameters
     ----------
     dataset: str
-        Name of dataset, e.g. "bucker40"
+        Name of dataset, e.g. "buckner40"
+    filenames: dict[str, str]
+        Files required in the dataset, given as dictionaries mapping arbitrary
+        keys to paths relative to each subject directory. The chosen keys will
+        be the keys used in the returned dictionary. E.g. for the brainmask and
+        aseg files, specify the list
+        ``{"image": "mri/brainmask.mgz", "mask": "mri/aseg.mgz"}``.
     partition: deepsurfer_train.enums.DatasetPartition | str
         Partition of the dataset (or none, which will return
         entire dataset).
@@ -112,8 +119,8 @@ def list_segmentation_files(
         This consists of a list of dictionaries, one for each
         element of the dataset. Within each dictionary, a key
         maps to a path representing the location of a file.
-        Included keys are "orig" and "aseg". Additionally a
-        "subject_id" key gives the subject ID.
+        Keys of this dict match those in the input ``filenames`` dict.
+        Additionally a "subject_id" key gives the subject ID.
 
     """
     if dataset not in DATASETS_AVAILABLE:
@@ -139,12 +146,12 @@ def list_segmentation_files(
 
     for subj in subjects:
         subj_dir = data_dir / subj
-        orig = subj_dir / "mri" / "orig.mgz"
-        aseg = subj_dir / "mri" / "aseg.mgz"
-        subj_data: dict[str, Path | str] = {"orig": orig, "aseg": aseg}
-        for path in [orig, aseg]:
+        subj_data: dict[str, Path | str] = {}
+        for k, p in filenames.items():
+            path = subj_dir / p
             if not path.exists():
                 raise FileNotFoundError(f"No file found at {str(path)}.")
+            subj_data[k] = path
         subj_data["subject_id"] = subj_dir.name
         data.append(subj_data)
 

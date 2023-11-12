@@ -21,6 +21,7 @@ class RandomizableIdentityd(Identityd, RandomizableTransform):
     the end of the cached operation.
 
     """
+
     pass
 
 

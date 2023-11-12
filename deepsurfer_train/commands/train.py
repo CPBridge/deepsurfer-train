@@ -13,19 +13,19 @@ from deepsurfer_train.train.training_loop import training_loop
 @click.command()
 @click.argument("data_config_file")
 @click.argument("model_config_file")
-@click.argument("model_name")
+@click.argument(
+    "model_output_dir",
+    type=click.Path(path_type=Path),
+)
 @click.option("--seed", "-s", type=int, help="Random seed to use.")
 @tracked(
-    literal_directory=locations.checkpoints_dir,
-    subdirectory_name_parameter="model_name",
+    directory_parameter="model_output_dir",
     seed_parameter="seed",
     include_uuid=True,
-    directory_injection_parameter="model_output_dir",
 )
 def train(
-    data_config_file: str,
-    model_config_file: str,
-    model_name: str,
+    data_config_file: Path,
+    model_config_file: Path,
     model_output_dir: Path,
     seed: Optional[int] = None,
 ) -> None:
@@ -34,13 +34,13 @@ def train(
     This will create a new directory in the checkpoints directory containing
     model weights and any other files associated with model training.
 
-    DATA_CONFIG_FILE contains parameters of the dataset, and MODEL_CONFIF
+    DATA_CONFIG_FILE contains parameters of the dataset, and MODEL_CONFIG_FILE
     contains parameters of the model and training process. Both are specified
     as names (without path) of the config file within the repo's training
     config directory.
 
-    MODEL_NAME is a free text string that names the model. The output will be
-    placed in a directory with this name.
+    All files resulting from the training are placed in the
+    MODEL_OUTPUT_DIRECTORY.
 
     """
     # Read in the model config file

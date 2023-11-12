@@ -8,7 +8,7 @@ import torch
 from typeguard import typechecked
 
 from deepsurfer_train import locations
-from deepsurfer_train.data import list_segmentation_files
+from deepsurfer_train.data import list_dataset_files
 from deepsurfer_train.enums import DatasetPartition, BrainRegions
 from deepsurfer_train.preprocess.transforms import (
     RandomizableIdentityd,
@@ -67,6 +67,8 @@ class DeepsurferSegmentationDataset(monai.data.CacheDataset):
         partition: DatasetPartition | str | None,
         processed_version: str | None = None,
         root_dir: Path | str = locations.project_dataset_dir,
+        image_file: str = "mri/brainmask.mgz",
+        mask_file: str = "mri/aseg.mgz",
         imsize: Sequence[int] | int = 255,
         excluded_regions: Sequence[BrainRegions | str]
         | None = DEFAULT_EXCLUDED_REGIONS,
@@ -75,7 +77,7 @@ class DeepsurferSegmentationDataset(monai.data.CacheDataset):
         synth_probability: float = 0.0,
         use_gpu: bool = True,
     ):
-        """Dataset class encapsulate loading and tranforming data.
+        """Dataset class encapsulate loading and transforming data.
 
         Parameters
         ----------
@@ -105,8 +107,14 @@ class DeepsurferSegmentationDataset(monai.data.CacheDataset):
 
         """
         partition = DatasetPartition(partition)
-        elements_list = list_segmentation_files(
+        image_key = "image"
+        mask_key = "mask"
+        elements_list = list_dataset_files(
             dataset=dataset,
+            filenames={
+                image_key: image_file,
+                mask_key: mask_file,
+            },
             partition=partition,
             processed_version=processed_version,
             root_dir=root_dir,
@@ -130,8 +138,6 @@ class DeepsurferSegmentationDataset(monai.data.CacheDataset):
             excluded_regions_
         )
 
-        image_key = "orig"
-        mask_key = "aseg"
         all_keys = [image_key, mask_key]
 
         transforms: list[monai.transforms.MapTransform] = []
@@ -222,7 +228,7 @@ class DeepsurferSegmentationDataset(monai.data.CacheDataset):
             transforms.append(
                 VoxynthAugmentd(
                     keys=[image_key],
-                    mask_key=mask_key,
+                    mask_key=None,
                     bias_field_probability=0.2,
                     inversion_probability=0.0,
                     smoothing_probability=0.2,
@@ -240,12 +246,12 @@ class DeepsurferSegmentationDataset(monai.data.CacheDataset):
 
         transforms.append(
             monai.transforms.AsDiscreted(
-                keys=["aseg"],
+                keys=[mask_key],
                 to_onehot=len(self.inverse_label_mapping) + 1,
             )
         )
 
-        composed_transforms = monai.transforms.Compose(transforms)
+        composed_transforms = monai.transforms.Compose(transforms, lazy=True)
 
         super().__init__(elements_list, composed_transforms)
 
@@ -254,6 +260,8 @@ class DeepsurferSegmentationDataset(monai.data.CacheDataset):
             orig_labels=list(self.inverse_label_mapping.keys()),
             target_labels=list(self.inverse_label_mapping.values()),
         )
+        self.image_key = image_key
+        self.mask_key = mask_key
 
     def get_region_label(self, label: int) -> BrainRegions:
         """Get the original label for an internal label pixel value.

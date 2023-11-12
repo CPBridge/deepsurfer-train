@@ -3,5 +3,6 @@
     "processed_version": null,
     "excluded_regions": ["FIFTH_VENTRICLE", "NON_WM_HYPOINTENSITIES"],
     "imsize": 256,
-    "synth_probability": 0.0
+    "synth_probability": 0.0,
+    "write_training_images": false
 }
