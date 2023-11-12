@@ -47,11 +47,11 @@ def reformat_image(
 
     """
     if spatial_format == SpatialFormat.TWO_D_AXIAL:
-        return einops.rearrange(t, "b c p l i -> (b i) c p l")
+        t = einops.rearrange(t, "b c p l i -> (b i) c p l")
     if spatial_format == SpatialFormat.TWO_D_CORONAL:
-        return einops.rearrange(t, "b c p l i -> (b p) c l i")
+        t = einops.rearrange(t, "b c p l i -> (b p) c l i")
     if spatial_format == SpatialFormat.TWO_D_SAGITTAL:
-        return einops.rearrange(t, "b c p l i -> (b l) c p i")
+        t = einops.rearrange(t, "b c p l i -> (b l) c p i")
 
     return t
 
@@ -160,6 +160,11 @@ def training_loop(
     experiment_type = ExperimentType(model_config["experiment_type"])
     if experiment_type == ExperimentType.TWO_D_ENSEMBLE:
         # One model in each of the three planes
+        formats = [
+            SpatialFormat.TWO_D_SAGITTAL,
+            SpatialFormat.TWO_D_AXIAL,
+            SpatialFormat.TWO_D_CORONAL,
+        ]
         models = {
             spatial_format: UNet(
                 spatial_dims=2,
@@ -167,7 +172,7 @@ def training_loop(
                 out_channels=train_dataset.n_total_labels,
                 **model_config["unet_params"],
             )
-            for spatial_format in SpatialFormat
+            for spatial_format in formats
         }
     else:
         models = {
@@ -318,7 +323,7 @@ def training_loop(
                         batch_size,
                     )
 
-                    pred_labelmaps = prediction.argmax(dim=1, keepdim=True).cpu()
+                    pred_labelmaps = prediction.argmax(dim=1, keepdim=True)
 
                     # Calculate metrics in 3D
                     dice_metric[spatial_format](pred_labelmaps, gt_labelmaps)
@@ -361,7 +366,7 @@ def training_loop(
             print(f"Epoch {e}, val loss ({spatial_format.name}) {epoch_loss:.4f}")
 
             writer.add_scalar(
-                "learning_rate",
+                f"learning_rate/{spatial_format.name}",
                 schedulers[spatial_format].optimizer.param_groups[0]["lr"],
                 e,
             )

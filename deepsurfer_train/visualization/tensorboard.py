@@ -61,10 +61,11 @@ def write_multiplanar_tensorboard(
     tag: str
         Tag to record in tensorboard.
     image: torch.Tensor
-        Image tensor in format (C H W D) with a single channel.
+        Image tensor in format (C H W D) with a single channel. Assumes
+        PLI orientation.
     labelmap: torch.Tensor
         Mask tensor in format (C H W D) with a single channel
-        and "labelmap" values.
+        and "labelmap" values. Assumes PLI orientation.
     num_classes: int
         Number of foreground classes in the mask.
     step: int
@@ -76,8 +77,8 @@ def write_multiplanar_tensorboard(
     write_tensorboard_overlay(
         writer=writer,
         tag=f"{tag_group}/{tag_prefix}_coronal",
-        image=image[:, s, :, :],
-        labelmap=labelmap[:, s, :, :],
+        image=image[:, s, :, :].permute([0, 2, 1]),
+        labelmap=labelmap[:, s, :, :].permute([0, 2, 1]),
         num_classes=num_classes,
         step=step,
     )
@@ -87,8 +88,8 @@ def write_multiplanar_tensorboard(
     write_tensorboard_overlay(
         writer=writer,
         tag=f"{tag_group}/{tag_prefix}_sagittal",
-        image=image[:, :, s, :],
-        labelmap=labelmap[:, :, s, :],
+        image=image[:, :, s, :].permute([0, 2, 1]),
+        labelmap=labelmap[:, :, s, :].permute([0, 2, 1]),
         num_classes=num_classes,
         step=step,
     )
