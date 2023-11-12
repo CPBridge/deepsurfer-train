@@ -50,8 +50,6 @@ def reformat_image(
         Tensor in the requested output format.
 
     """
-    if t.shape[1] != 1:
-        raise ValueError("Can only deal with single channel tensors")
     if channel_stack % 2 != 1:
         raise ValueError("channel_stack must be an odd integer")
     if channel_stack == 1:
@@ -63,6 +61,8 @@ def reformat_image(
         if spatial_format == SpatialFormat.TWO_D_CORONAL:
             t = einops.rearrange(t, "b c p l i -> (b p) c l i")
     else:
+        if t.shape[1] != 1:
+            raise ValueError("Can only deal with single channel tensors")
         # NB in pytorch 2.0 we could use Tensor.unroll()
         pad_slices = channel_stack // 2
         if spatial_format == SpatialFormat.TWO_D_AXIAL:
@@ -74,7 +74,7 @@ def reformat_image(
                 window = t[:, :, :, :, s : s + channel_stack]
                 window = einops.rearrange(window, "b 1 p l i -> b i p l")
                 output_slices.append(window)
-            t = torch.cat(output_slices, dim=1)
+            t = torch.cat(output_slices, dim=0)
         if spatial_format == SpatialFormat.TWO_D_SAGITTAL:
             d = t.shape[3]
             pad = [0, 0, pad_slices, pad_slices]
@@ -84,7 +84,7 @@ def reformat_image(
                 window = t[:, :, :, s : s + channel_stack, :]
                 window = einops.rearrange(window, "b 1 p l i -> b l p i")
                 output_slices.append(window)
-            t = torch.cat(output_slices, dim=1)
+            t = torch.cat(output_slices, dim=0)
         if spatial_format == SpatialFormat.TWO_D_CORONAL:
             d = t.shape[2]
             pad = [0, 0, 0, 0, pad_slices, pad_slices]
@@ -94,7 +94,7 @@ def reformat_image(
                 window = t[:, :, s : s + channel_stack, :, :]
                 window = einops.rearrange(window, "b 1 p l i -> b p l i")
                 output_slices.append(window)
-            t = torch.cat(output_slices, dim=1)
+            t = torch.cat(output_slices, dim=0)
 
     return t
 
@@ -208,7 +208,7 @@ def training_loop(
             SpatialFormat.TWO_D_AXIAL,
             SpatialFormat.TWO_D_CORONAL,
         ]
-        channel_stack = int(model_config["2d_channel_stack"])
+        channel_stack = int(model_config["channel_stack"])
         models = {
             spatial_format: UNet(
                 spatial_dims=2,
