@@ -26,6 +26,7 @@ from deepsurfer_train.visualization.tensorboard import (
 def reformat_image(
     t: torch.Tensor,
     spatial_format: SpatialFormat,
+    channel_stack: int = 1,
 ) -> torch.Tensor:
     """Move a tensor into an alternative spatial format.
 
@@ -39,6 +40,9 @@ def reformat_image(
         Tensor in 3D (B, C, H, W, D) format and PLI spatial orientation.
     spatial_format: deepsurfer_train.enums.SpatialFormat
         Spatial format of the desired output tensor.
+    channel_stack: int
+        Stack this many consecutive down the channel axis for the fastsurfer-
+        style 2D network. Has no effect if the spatial_format is not 2D.
 
     Returns
     ------
@@ -46,12 +50,51 @@ def reformat_image(
         Tensor in the requested output format.
 
     """
-    if spatial_format == SpatialFormat.TWO_D_AXIAL:
-        t = einops.rearrange(t, "b c p l i -> (b i) c p l")
-    if spatial_format == SpatialFormat.TWO_D_CORONAL:
-        t = einops.rearrange(t, "b c p l i -> (b p) c l i")
-    if spatial_format == SpatialFormat.TWO_D_SAGITTAL:
-        t = einops.rearrange(t, "b c p l i -> (b l) c p i")
+    if t.shape[1] != 1:
+        raise ValueError("Can only deal with single channel tensors")
+    if channel_stack % 2 != 1:
+        raise ValueError("channel_stack must be an odd integer")
+    if channel_stack == 1:
+        # More efficient in case of a single output channel
+        if spatial_format == SpatialFormat.TWO_D_AXIAL:
+            t = einops.rearrange(t, "b c p l i -> (b i) c p l")
+        if spatial_format == SpatialFormat.TWO_D_SAGITTAL:
+            t = einops.rearrange(t, "b c p l i -> (b l) c p i")
+        if spatial_format == SpatialFormat.TWO_D_CORONAL:
+            t = einops.rearrange(t, "b c p l i -> (b p) c l i")
+    else:
+        # NB in pytorch 2.0 we could use Tensor.unroll()
+        pad_slices = channel_stack // 2
+        if spatial_format == SpatialFormat.TWO_D_AXIAL:
+            d = t.shape[4]
+            pad = [pad_slices, pad_slices]
+            t = torch.nn.functional.pad(t, pad)
+            output_slices = []
+            for s in range(d):
+                window = t[:, :, :, :, s : s + channel_stack]
+                window = einops.rearrange(window, "b 1 p l i -> b i p l")
+                output_slices.append(window)
+            t = torch.cat(output_slices, dim=1)
+        if spatial_format == SpatialFormat.TWO_D_SAGITTAL:
+            d = t.shape[3]
+            pad = [0, 0, pad_slices, pad_slices]
+            t = torch.nn.functional.pad(t, pad)
+            output_slices = []
+            for s in range(d):
+                window = t[:, :, :, s : s + channel_stack, :]
+                window = einops.rearrange(window, "b 1 p l i -> b l p i")
+                output_slices.append(window)
+            t = torch.cat(output_slices, dim=1)
+        if spatial_format == SpatialFormat.TWO_D_CORONAL:
+            d = t.shape[2]
+            pad = [0, 0, 0, 0, pad_slices, pad_slices]
+            t = torch.nn.functional.pad(t, pad)
+            output_slices = []
+            for s in range(d):
+                window = t[:, :, s : s + channel_stack, :, :]
+                window = einops.rearrange(window, "b 1 p l i -> b p l i")
+                output_slices.append(window)
+            t = torch.cat(output_slices, dim=1)
 
     return t
 
@@ -165,16 +208,18 @@ def training_loop(
             SpatialFormat.TWO_D_AXIAL,
             SpatialFormat.TWO_D_CORONAL,
         ]
+        channel_stack = int(model_config["2d_channel_stack"])
         models = {
             spatial_format: UNet(
                 spatial_dims=2,
-                in_channels=1,
+                in_channels=channel_stack,
                 out_channels=train_dataset.n_total_labels,
                 **model_config["unet_params"],
             )
             for spatial_format in formats
         }
     else:
+        channel_stack = 1
         models = {
             SpatialFormat.THREE_D: UNet(
                 spatial_dims=3,
@@ -244,10 +289,12 @@ def training_loop(
                 input_image = reformat_image(
                     batch[train_dataset.image_key],
                     spatial_format,
+                    channel_stack=channel_stack,
                 )
                 mask_image = reformat_image(
                     batch[train_dataset.mask_key],
                     spatial_format,
+                    channel_stack=1,
                 )
 
                 prediction = model(input_image)
@@ -304,10 +351,12 @@ def training_loop(
                     input_image = reformat_image(
                         batch[val_dataset.image_key],
                         spatial_format,
+                        channel_stack=channel_stack,
                     )
                     mask_image = reformat_image(
                         batch[val_dataset.mask_key],
                         spatial_format,
+                        channel_stack=1,
                     )
 
                     prediction = model(input_image)

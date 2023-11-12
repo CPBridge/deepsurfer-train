@@ -12,6 +12,7 @@
         "factor": 0.1,
         "patience": 15
     },
+    "channel_stack": 7,
     "unet_params": {
         "channels": [16, 16, 32, 32, 32, 32, 32],
         "strides": [2, 2, 2, 2, 2, 2]
