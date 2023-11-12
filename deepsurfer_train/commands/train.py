@@ -24,8 +24,8 @@ from deepsurfer_train.train.training_loop import training_loop
     include_uuid=True,
 )
 def train(
-    data_config_file: Path,
-    model_config_file: Path,
+    data_config_file: str,
+    model_config_file: str,
     model_output_dir: Path,
     seed: Optional[int] = None,
 ) -> None:

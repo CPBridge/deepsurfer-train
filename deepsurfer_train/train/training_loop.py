@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Any
 
 from monai.visualize.utils import blend_images
+from monai.metrics import DiceMetric
 from monai.networks.nets import UNet
 from monai.losses import DiceLoss
 import numpy as np
@@ -102,6 +103,16 @@ def training_loop(
         softmax=True,
         squared_pred=True,
     )
+    dice_metric = DiceMetric(
+        include_background=False,
+        num_classes=val_dataset.n_total_labels,
+    )
+    per_class_dice_metrics = {
+        val_dataset.get_region_label(c): DiceMetric(
+            include_background=False, num_classes=1
+        )
+        for c in range(1, val_dataset.n_total_labels)
+    }
 
     # Set up optimizer and scheduler
     optimizer_cls = getattr(torch.optim, model_config["optimizer"])
@@ -142,9 +153,14 @@ def training_loop(
                     batch[train_dataset.mask_key].argmax(axis=1, keepdim=True).cpu()
                 )
                 for b in range(batch_size):
+                    scaled_gt_labelmap = (
+                        gt_labelmap[b, :, :, :, display_slice]
+                        / train_dataset.n_foreground_labels
+                    )
                     blend = blend_images(
                         batch[train_dataset.image_key][b, :, :, :, display_slice].cpu(),
-                        gt_labelmap[b, :, :, :, display_slice],
+                        scaled_gt_labelmap,
+                        rescale_arrays=False,
                         cmap="tab20",
                     )
                     writer.add_image(
@@ -166,15 +182,30 @@ def training_loop(
 
                 batch_losses.append(loss.detach().cpu().item())
 
-                labelmap = prediction.argmax(axis=1, keepdim=True).cpu()
-                if e == 0:
-                    gt_labelmap = (
-                        batch[val_dataset.mask_key].argmax(axis=1, keepdim=True).cpu()
+                pred_labelmap = prediction.argmax(axis=1, keepdim=True).cpu()
+
+                gt_labelmap = (
+                    batch[val_dataset.mask_key].argmax(axis=1, keepdim=True).cpu()
+                )
+
+                # Calculate metrics
+                dice_metric(pred_labelmap, gt_labelmap)
+                for c in range(1, val_dataset.n_total_labels):
+                    label = val_dataset.get_region_label(c)
+                    per_class_dice_metrics[label](
+                        pred_labelmap == c,
+                        gt_labelmap == c,
                     )
+
                 for b in range(batch_size):
+                    scaled_pred_labelmap = (
+                        pred_labelmap[b, :, :, :, display_slice]
+                        / val_dataset.n_foreground_labels
+                    )
                     blend = blend_images(
                         batch[val_dataset.image_key][b, :, :, :, display_slice].cpu(),
-                        labelmap[b, :, :, :, display_slice],
+                        scaled_pred_labelmap,
+                        rescale_arrays=False,
                         cmap="tab20",
                     )
                     writer.add_image(
@@ -183,12 +214,17 @@ def training_loop(
                         e,
                     )
                     if e == 0:
+                        scaled_gt_labelmap = (
+                            gt_labelmap[b, :, :, :, display_slice]
+                            / val_dataset.n_foreground_labels
+                        )
                         blend = blend_images(
                             batch[val_dataset.image_key][
                                 b, :, :, :, display_slice
                             ].cpu(),
-                            gt_labelmap[b, :, :, :, display_slice],
+                            scaled_gt_labelmap,
                             cmap="tab20",
+                            rescale_arrays=False,
                         )
                         writer.add_image(
                             f"val_subject_{batch['subject_id'][b]}/ground_truth",
@@ -198,6 +234,17 @@ def training_loop(
 
             epoch_loss = np.mean(batch_losses)
             writer.add_scalar("loss/val", epoch_loss, e)
+            writer.add_scalar("dice_metric/val", dice_metric.aggregate(), e)
+            dice_metric.reset()
+            for c in range(1, val_dataset.n_total_labels):
+                label = val_dataset.get_region_label(c)
+                writer.add_scalar(
+                    f"per_class_dice_metric/{label.name}",
+                    per_class_dice_metrics[label].aggregate(),
+                    e,
+                )
+                per_class_dice_metrics[label].reset()
+
             print(f"Epoch {e}, val loss {epoch_loss:.4f}")
 
         writer.add_scalar(
