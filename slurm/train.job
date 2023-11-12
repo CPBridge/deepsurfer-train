@@ -5,13 +5,13 @@
 #SBATCH -p rtx8000
 #SBATCH -A qtim
 #SBATCH -n 1
-#SBATCH --cpus-per-task=4
+#SBATCH --cpus-per-task=3
 #SBATCH --gres=gpu:1
-#SBATCH -t 48:00:00
+#SBATCH -t 4:00:00
 #SBATCH --mem=40G
 
 export PYENV_VERSION="deepsurfer-train"
 python -m deepsurfer_train train \
     default_data_config.json \
     unet_model_config.json \
-    basic_unet
+    /autofs/cluster/qtim/projects/deepsurfer/checkpoints/basic_unet
