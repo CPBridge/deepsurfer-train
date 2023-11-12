@@ -2,7 +2,7 @@
 from pathlib import Path
 from typing import Any
 
-from monai.visualize.utils import blend_images
+import einops
 from monai.metrics import DiceMetric
 from monai.networks.nets import UNet
 from monai.losses import DiceLoss
@@ -11,9 +11,82 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 
 
-from deepsurfer_train.enums import DatasetPartition
+from deepsurfer_train.enums import (
+    DatasetPartition,
+    SpatialFormat,
+    ExperimentType,
+)
 from deepsurfer_train import locations
 from deepsurfer_train.preprocess.dataset import DeepsurferSegmentationDataset
+from deepsurfer_train.visualization.tensorboard import (
+    write_batch_multiplanar_tensorboard,
+)
+
+
+def reformat_image(
+    t: torch.Tensor,
+    spatial_format: SpatialFormat,
+) -> torch.Tensor:
+    """Move a tensor into an alternative spatial format.
+
+    Given a tensor with a 3D spatial format (B, C, H, W, D) in PLI orientation,
+    move the image into the desired spatial format with individual 2D slices
+    stacked down the batch axis.
+
+    Parameters
+    ----------
+    t: torch.Tensor
+        Tensor in 3D (B, C, H, W, D) format and PLI spatial orientation.
+    spatial_format: deepsurfer_train.enums.SpatialFormat
+        Spatial format of the desired output tensor.
+
+    Returns
+    ------
+    torch.Tensor:
+        Tensor in the requested output format.
+
+    """
+    if spatial_format == SpatialFormat.TWO_D_AXIAL:
+        return einops.rearrange(t, "b c p l i -> (b i) c p l")
+    if spatial_format == SpatialFormat.TWO_D_CORONAL:
+        return einops.rearrange(t, "b c p l i -> (b p) c l i")
+    if spatial_format == SpatialFormat.TWO_D_SAGITTAL:
+        return einops.rearrange(t, "b c p l i -> (b l) c p i")
+
+    return t
+
+
+def inverse_reformat_image(
+    t: torch.Tensor, spatial_format: SpatialFormat, batch_size: int
+) -> torch.Tensor:
+    """Undo the operation performed in reformat_image.
+
+    Given a tensor with a shape output by the reformat_image function, undo it
+    and return to (B, C, H, W, D) format in PLI orientation.
+
+    Parameters
+    ----------
+    t: torch.Tensor
+        Tensor in either 2D or 3D format as output by reformat_image.
+    spatial_format: deepsurfer_train.enums.SpatialFormat
+        Spatial format of the input tensor.
+    batch_size: int
+        Batch size as it was before the forward transform.
+
+    Returns
+    ------
+    torch.Tensor:
+        Tensor in the requested output format.
+
+    """
+    if spatial_format == SpatialFormat.TWO_D_AXIAL:
+        return einops.rearrange(t, "(b i) c p l -> b c p l i", b=batch_size)
+    if spatial_format == SpatialFormat.TWO_D_CORONAL:
+        return einops.rearrange(t, "(b p) c l i -> b c p l i", b=batch_size)
+    if spatial_format == SpatialFormat.TWO_D_SAGITTAL:
+        return einops.rearrange(t, "(b l) c p i -> b c p l i", b=batch_size)
+
+    return t
 
 
 def training_loop(
@@ -64,12 +137,6 @@ def training_loop(
         use_gpu=use_gpu,
     )
 
-    # Choose a slice to display
-    if isinstance(data_config["imsize"], int):
-        display_slice = data_config["imsize"] // 2
-    else:
-        display_slice = data_config["imsize"][2] // 2
-
     # Set up data loader
     batch_size = model_config["batch_size"]
     batches_per_epoch = model_config["batches_per_epoch"]
@@ -90,41 +157,62 @@ def training_loop(
     )
 
     # Set up model
-    model = UNet(
-        spatial_dims=3,
-        in_channels=1,
-        out_channels=train_dataset.n_total_labels,
-        **model_config["unet_params"],
-    )
-    model = model.cuda()
+    experiment_type = ExperimentType(model_config["experiment_type"])
+    if experiment_type == ExperimentType.TWO_D_ENSEMBLE:
+        # One model in each of the three planes
+        models = {
+            spatial_format: UNet(
+                spatial_dims=2,
+                in_channels=1,
+                out_channels=train_dataset.n_total_labels,
+                **model_config["unet_params"],
+            )
+            for spatial_format in SpatialFormat
+        }
+    else:
+        models = {
+            SpatialFormat.THREE_D: UNet(
+                spatial_dims=3,
+                in_channels=1,
+                out_channels=train_dataset.n_total_labels,
+                **model_config["unet_params"],
+            )
+        }
+    for model in models.values():
+        model.cuda()
 
     loss_fn = DiceLoss(
         include_background=False,
         softmax=True,
         squared_pred=True,
     )
-    dice_metric = DiceMetric(
-        include_background=False,
-        num_classes=val_dataset.n_total_labels,
-    )
-    per_class_dice_metrics = {
-        val_dataset.get_region_label(c): DiceMetric(
-            include_background=False, num_classes=1
-        )
-        for c in range(1, val_dataset.n_total_labels)
-    }
 
     # Set up optimizer and scheduler
     optimizer_cls = getattr(torch.optim, model_config["optimizer"])
-    optimizer = optimizer_cls(
-        model.parameters(),
-        **model_config["optimizer_params"],
-    )
     scheduler_cls = getattr(torch.optim.lr_scheduler, model_config["scheduler"])
-    scheduler = scheduler_cls(
-        optimizer,
-        **model_config["scheduler_params"],
-    )
+    optimizers = {}
+    schedulers = {}
+    per_class_dice_metrics = {}
+    dice_metric = {}
+    for spatial_format, model in models.items():
+        optimizers[spatial_format] = optimizer_cls(
+            model.parameters(),
+            **model_config["optimizer_params"],
+        )
+        schedulers[spatial_format] = scheduler_cls(
+            optimizers[spatial_format],
+            **model_config["scheduler_params"],
+        )
+        dice_metric[spatial_format] = DiceMetric(
+            include_background=False,
+            num_classes=val_dataset.n_total_labels,
+        )
+        per_class_dice_metrics[spatial_format] = {
+            val_dataset.get_region_label(c): DiceMetric(
+                include_background=False, num_classes=1
+            )
+            for c in range(1, val_dataset.n_total_labels)
+        }
 
     # Set up tensorboard log
     tensorboard_dir = output_dir / "tensorboard"
@@ -135,127 +223,159 @@ def training_loop(
     # Begin loop
     print("Starting training")
     for e in range(model_config["epochs"]):
-        model.train()
-        optimizer.zero_grad()
-        batch_losses = []
+        for model in models.values():
+            model.train()
+        for optimizer in optimizers.values():
+            optimizer.zero_grad()
+        batch_losses: dict[SpatialFormat, list[float]] = {
+            spatial_format: [] for spatial_format in models.keys()
+        }
 
         for batch in train_loader:
-            prediction = model(batch[train_dataset.image_key])
-            loss = loss_fn(prediction, batch[train_dataset.mask_key])
-            loss.backward()
+            for spatial_format in models.keys():
+                model = models[spatial_format]
+                optimizer = optimizers[spatial_format]
 
-            optimizer.step()
-            optimizer.zero_grad()
-
-            batch_losses.append(loss.detach().cpu().item())
-            if data_config.get("write_training_images", False):
-                gt_labelmap = (
-                    batch[train_dataset.mask_key].argmax(axis=1, keepdim=True).cpu()
+                input_image = reformat_image(
+                    batch[train_dataset.image_key],
+                    spatial_format,
                 )
-                for b in range(batch_size):
-                    scaled_gt_labelmap = (
-                        gt_labelmap[b, :, :, :, display_slice]
-                        / train_dataset.n_foreground_labels
-                    )
-                    blend = blend_images(
-                        batch[train_dataset.image_key][b, :, :, :, display_slice].cpu(),
-                        scaled_gt_labelmap,
-                        rescale_arrays=False,
-                        cmap="tab20",
-                    )
-                    writer.add_image(
-                        f"train_subject_{batch['subject_id'][b]}/train_image",
-                        blend,
-                        e,
-                    )
+                mask_image = reformat_image(
+                    batch[train_dataset.mask_key],
+                    spatial_format,
+                )
 
-        epoch_loss = np.mean(batch_losses)
-        writer.add_scalar("loss/train", epoch_loss, e)
-        print(f"Epoch {e}, train loss {epoch_loss:.4f}")
+                prediction = model(input_image)
+                loss = loss_fn(prediction, mask_image)
+                loss.backward()
 
-        model.eval()
-        batch_losses = []
+                optimizer.step()
+                optimizer.zero_grad()
+
+                batch_losses[spatial_format].append(loss.detach().cpu().item())
+
+            if data_config.get("write_training_images", False):
+                gt_labelmaps = batch[train_dataset.mask_key].argmax(
+                    axis=1, keepdim=True
+                )
+                write_batch_multiplanar_tensorboard(
+                    writer=writer,
+                    tag_group_prefix="train",
+                    tag_prefix="train_image",
+                    images=batch[train_dataset.image_key],
+                    labelmaps=gt_labelmaps,
+                    subject_ids=batch["subject_id"],
+                    num_classes=train_dataset.n_foreground_labels,
+                    step=e,
+                )
+
+        for spatial_format in models.keys():
+            epoch_loss = np.mean(batch_losses[spatial_format])
+            writer.add_scalar(f"loss/train_{spatial_format.name}", epoch_loss, e)
+            print(f"Epoch {e}, train loss ({spatial_format.name}) {epoch_loss:.4f}")
+
+        for model in models.values():
+            model.eval()
+        batch_losses = {spatial_format: [] for spatial_format in models.keys()}
         with torch.no_grad():
             for batch in val_loader:
-                prediction = model(batch[val_dataset.image_key])
-                loss = loss_fn(prediction, batch[val_dataset.mask_key])
+                gt_labelmaps = batch[val_dataset.mask_key].argmax(axis=1, keepdim=True)
 
-                batch_losses.append(loss.detach().cpu().item())
-
-                pred_labelmap = prediction.argmax(axis=1, keepdim=True).cpu()
-
-                gt_labelmap = (
-                    batch[val_dataset.mask_key].argmax(axis=1, keepdim=True).cpu()
-                )
-
-                # Calculate metrics
-                dice_metric(pred_labelmap, gt_labelmap)
-                for c in range(1, val_dataset.n_total_labels):
-                    label = val_dataset.get_region_label(c)
-                    per_class_dice_metrics[label](
-                        pred_labelmap == c,
-                        gt_labelmap == c,
+                if e == 0:
+                    write_batch_multiplanar_tensorboard(
+                        writer=writer,
+                        tag_group_prefix="val",
+                        tag_prefix="ground_truth",
+                        images=batch[val_dataset.image_key],
+                        labelmaps=gt_labelmaps,
+                        subject_ids=batch["subject_id"],
+                        num_classes=val_dataset.n_foreground_labels,
+                        step=e,
                     )
 
-                for b in range(batch_size):
-                    scaled_pred_labelmap = (
-                        pred_labelmap[b, :, :, :, display_slice]
-                        / val_dataset.n_foreground_labels
+                for spatial_format in models.keys():
+                    model = models[spatial_format]
+
+                    input_image = reformat_image(
+                        batch[val_dataset.image_key],
+                        spatial_format,
                     )
-                    blend = blend_images(
-                        batch[val_dataset.image_key][b, :, :, :, display_slice].cpu(),
-                        scaled_pred_labelmap,
-                        rescale_arrays=False,
-                        cmap="tab20",
+                    mask_image = reformat_image(
+                        batch[val_dataset.mask_key],
+                        spatial_format,
                     )
-                    writer.add_image(
-                        f"val_subject_{batch['subject_id'][b]}/prediction",
-                        blend,
-                        e,
+
+                    prediction = model(input_image)
+
+                    loss = loss_fn(prediction, mask_image)
+
+                    batch_losses[spatial_format].append(loss.detach().cpu().item())
+
+                    # Move prediction back to 3D format
+                    prediction = inverse_reformat_image(
+                        prediction,
+                        spatial_format,
+                        batch_size,
                     )
-                    if e == 0:
-                        scaled_gt_labelmap = (
-                            gt_labelmap[b, :, :, :, display_slice]
-                            / val_dataset.n_foreground_labels
-                        )
-                        blend = blend_images(
-                            batch[val_dataset.image_key][
-                                b, :, :, :, display_slice
-                            ].cpu(),
-                            scaled_gt_labelmap,
-                            cmap="tab20",
-                            rescale_arrays=False,
-                        )
-                        writer.add_image(
-                            f"val_subject_{batch['subject_id'][b]}/ground_truth",
-                            blend,
-                            e,
+
+                    pred_labelmaps = prediction.argmax(dim=1, keepdim=True).cpu()
+
+                    # Calculate metrics in 3D
+                    dice_metric[spatial_format](pred_labelmaps, gt_labelmaps)
+                    for c in range(1, val_dataset.n_total_labels):
+                        label = val_dataset.get_region_label(c)
+                        per_class_dice_metrics[spatial_format][label](
+                            pred_labelmaps == c,
+                            gt_labelmaps == c,
                         )
 
-            epoch_loss = np.mean(batch_losses)
-            writer.add_scalar("loss/val", epoch_loss, e)
-            writer.add_scalar("dice_metric/val", dice_metric.aggregate(), e)
-            dice_metric.reset()
+                    write_batch_multiplanar_tensorboard(
+                        writer=writer,
+                        tag_group_prefix="val",
+                        tag_prefix=f"prediction_{spatial_format.name}",
+                        images=batch[val_dataset.image_key],
+                        labelmaps=pred_labelmaps,
+                        subject_ids=batch["subject_id"],
+                        num_classes=val_dataset.n_foreground_labels,
+                        step=e,
+                    )
+
+        for spatial_format in models.keys():
+            epoch_loss = np.mean(batch_losses[spatial_format])
+            writer.add_scalar(f"loss/val_{spatial_format.name}", epoch_loss, e)
+            writer.add_scalar(
+                f"dice_metric_3d/val_{spatial_format.name}",
+                dice_metric[spatial_format].aggregate(),
+                e,
+            )
+            dice_metric[spatial_format].reset()
             for c in range(1, val_dataset.n_total_labels):
                 label = val_dataset.get_region_label(c)
                 writer.add_scalar(
-                    f"per_class_dice_metric/{label.name}",
-                    per_class_dice_metrics[label].aggregate(),
+                    f"per_class_dice_metric_3d_{spatial_format.name}/{label.name}",
+                    per_class_dice_metrics[spatial_format][label].aggregate(),
                     e,
                 )
-                per_class_dice_metrics[label].reset()
+                per_class_dice_metrics[spatial_format][label].reset()
 
-            print(f"Epoch {e}, val loss {epoch_loss:.4f}")
+            print(f"Epoch {e}, val loss ({spatial_format.name}) {epoch_loss:.4f}")
 
-        writer.add_scalar(
-            "learning_rate",
-            scheduler.optimizer.param_groups[0]["lr"],
-            e,
-        )
-        if isinstance(scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
-            # special case: need to pass loss to step method
-            scheduler.step(epoch_loss)
-        else:
-            scheduler.step()
+            writer.add_scalar(
+                "learning_rate",
+                schedulers[spatial_format].optimizer.param_groups[0]["lr"],
+                e,
+            )
+            if isinstance(
+                schedulers[spatial_format], torch.optim.lr_scheduler.ReduceLROnPlateau
+            ):
+                # special case: need to pass loss to step method
+                schedulers[spatial_format].step(epoch_loss)
+            else:
+                schedulers[spatial_format].step()
 
-        torch.save(model.state_dict(), weights_dir / f"weights_{e:04d}.pt")
+        # Save all models together
+        weights = {
+            spatial_format.name: model.state_dict()
+            for spatial_format, model in models.items()
+        }
+        torch.save(weights, weights_dir / f"weights_{e:04d}.pt")

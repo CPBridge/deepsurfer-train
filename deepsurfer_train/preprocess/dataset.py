@@ -9,7 +9,10 @@ from typeguard import typechecked
 
 from deepsurfer_train import locations
 from deepsurfer_train.data import list_dataset_files
-from deepsurfer_train.enums import DatasetPartition, BrainRegions
+from deepsurfer_train.enums import (
+    DatasetPartition,
+    BrainRegions,
+)
 from deepsurfer_train.preprocess.transforms import (
     RandomizableIdentityd,
     SynthTransformd,
@@ -159,16 +162,6 @@ class DeepsurferSegmentationDataset(monai.data.CacheDataset):
             )
         )
 
-        if use_gpu:
-            device = torch.device("cuda:0")
-            # This prevents items being cached on the GPU
-            transforms.append(
-                RandomizableIdentityd(keys=[image_key, mask_key, "subject_id"])
-            )
-            transforms.append(monai.transforms.ToDeviced(device=device, keys=all_keys))
-        else:
-            device = torch.device("cpu")
-
         # Scale intensity from input range
         transforms.append(
             monai.transforms.ScaleIntensityRanged(
@@ -180,6 +173,16 @@ class DeepsurferSegmentationDataset(monai.data.CacheDataset):
                 clip=True,
             )
         )
+
+        if use_gpu:
+            device = torch.device("cuda:0")
+            # This prevents items being cached on the GPU
+            transforms.append(
+                RandomizableIdentityd(keys=[image_key, mask_key, "subject_id"])
+            )
+            transforms.append(monai.transforms.ToDeviced(device=device, keys=all_keys))
+        else:
+            device = torch.device("cpu")
 
         transforms.append(
             monai.transforms.Orientationd(

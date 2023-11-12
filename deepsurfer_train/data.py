@@ -85,7 +85,7 @@ def get_latest_fs_version(processed_dir: Path | str) -> str:
 
 def list_dataset_files(
     dataset: str,
-    filenames: list[str],
+    filenames: dict[str, str],
     partition: DatasetPartition | str | None,
     processed_version: str | None = None,
     root_dir: Path | str = locations.project_dataset_dir,
