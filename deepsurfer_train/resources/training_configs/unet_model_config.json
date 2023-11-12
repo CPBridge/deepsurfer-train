@@ -1,5 +1,5 @@
 {
-    "epochs": 1000,
+    "epochs": 300,
     "batch_size": 1,
     "batches_per_epoch": 1000,
     "optimizer": "Adam",
