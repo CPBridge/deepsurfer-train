@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Sequence
 
 import monai
+import pandas as pd
 import numpy as np
 import torch
 from typeguard import typechecked
@@ -25,11 +26,12 @@ DEFAULT_EXCLUDED_REGIONS = ("FIFTH_VENTRICLE", "NON_WM_HYPOINTENSITIES")
 
 def get_label_mapping(
     excluded_regions: Sequence[BrainRegions] | None = None,
-) -> tuple[dict[int, int], dict[int, int]]:
+) -> pd.DataFrame:
     """Get a mapping between original label and "internal" label.
 
     The "internal" set of labels is consecutive, starting at 1, and omits
-    any excluded labels.
+    any excluded labels. The "merged internal" set of labels is similar
+    but additionally merges lateralized labels into a single label.
 
     Parameters
     ----------
@@ -38,26 +40,52 @@ def get_label_mapping(
 
     Returns
     -------
-    dict[int, int]:
-        Mapping of all original label values to internal labels.
-    dict[int, int]:
-        Mapping of internal label values to non-excluded original labels.
+    pandas.DataFrame
+        Mapping of all original label values to internal labels and
+        merged internal labels. Contains the following columns:
+        "name", "original_value, "internal_value", "merged_name",
+        "merged_internal_value".
 
     """
-    mapping: dict[int, int] = {}
-    inverse_mapping: dict[int, int] = {}
+
+    def merge_name(name: str) -> str:
+        for lat_str in ["LEFT_", "RIGHT_"]:
+            if name.startswith(lat_str):
+                return name.split(lat_str, maxsplit=1)[1]
+        return name
+
+    # Rows will be appended here
+    mapping: list[dict[str, int | str]] = []
     next_label = 1
+    next_merged_label = 1
+
+    # Dictionary of merged label names to values
+    merged_labels: dict[str, int] = {}
+
     excluded_regions = [] if excluded_regions is None else excluded_regions
     for label in BrainRegions:
+        row = {"name": label.name, "original_value": label.value}
         if label in excluded_regions:
             # Map this value to zero
-            mapping[label.value] = 0
+            row["internal_value"] = 0
+            row["merged_internal_value"] = 0
         else:
-            inverse_mapping[next_label] = label.value
-            mapping[label.value] = next_label
+            row["internal_value"] = next_label
+            merged_name = merge_name(label.name)
             next_label += 1
 
-    return mapping, inverse_mapping
+            row["merged_name"] = merged_name
+            if merged_name in merged_labels:
+                row["merged_internal_value"] = merged_labels[merged_name]
+            else:
+                row["merged_internal_value"] = next_merged_label
+                merged_labels[merged_name] = next_merged_label
+                next_merged_label += 1
+
+        mapping.append(row)
+
+    mapping_df = pd.DataFrame(mapping)
+    return mapping_df
 
 
 @typechecked
@@ -112,6 +140,7 @@ class DeepsurferSegmentationDataset(monai.data.CacheDataset):
         partition = DatasetPartition(partition)
         image_key = "image"
         mask_key = "mask"
+        merged_mask_key = "merged_mask"
         elements_list = list_dataset_files(
             dataset=dataset,
             filenames={
@@ -137,29 +166,39 @@ class DeepsurferSegmentationDataset(monai.data.CacheDataset):
             r if isinstance(r, BrainRegions) else BrainRegions[r]
             for r in excluded_regions
         ]
-        self.label_mapping, self.inverse_label_mapping = get_label_mapping(
-            excluded_regions_
-        )
+        self.label_mapping = get_label_mapping(excluded_regions_)
 
-        all_keys = [image_key, mask_key]
+        load_keys = [image_key, mask_key]
+        all_keys = [image_key, mask_key, merged_mask_key]
 
         transforms: list[monai.transforms.MapTransform] = []
 
         transforms.append(
             monai.transforms.LoadImaged(
-                keys=all_keys,
+                keys=load_keys,
                 ensure_channel_first=True,
                 simple_keys=True,
                 reader="NibabelReader",
                 image_only=True,
             )
         )
-        transforms.append(
-            monai.transforms.MapLabelValued(
-                keys=mask_key,
-                orig_labels=list(self.label_mapping.keys()),
-                target_labels=list(self.label_mapping.values()),
-            )
+        transforms.extend(
+            [
+                monai.transforms.MapLabelValued(
+                    keys=mask_key,
+                    orig_labels=self.label_mapping.original_value.values.tolist(),
+                    target_labels=self.label_mapping.internal_value.values.tolist(),
+                ),
+                monai.transforms.CopyItemsd(
+                    keys=[mask_key],
+                    names=[merged_mask_key],
+                ),
+                monai.transforms.MapLabelValued(
+                    keys=merged_mask_key,
+                    orig_labels=self.label_mapping.internal_value.values.tolist(),
+                    target_labels=self.label_mapping.merged_internal_value.values.tolist(),
+                ),
+            ]
         )
 
         # Scale intensity from input range
@@ -222,7 +261,7 @@ class DeepsurferSegmentationDataset(monai.data.CacheDataset):
             if synth_probability > 0.0:
                 transforms.append(
                     SynthTransformd(
-                        mask_key=mask_key,
+                        mask_key=merged_mask_key,
                         image_output_keys=[image_key],
                         apply_probability=synth_probability,
                     )
@@ -247,11 +286,17 @@ class DeepsurferSegmentationDataset(monai.data.CacheDataset):
                 )
             )
 
-        transforms.append(
-            monai.transforms.AsDiscreted(
-                keys=[mask_key],
-                to_onehot=len(self.inverse_label_mapping) + 1,
-            )
+        transforms.extend(
+            [
+                monai.transforms.AsDiscreted(
+                    keys=[mask_key],
+                    to_onehot=self.label_mapping.internal_value.max() + 1,
+                ),
+                monai.transforms.AsDiscreted(
+                    keys=[merged_mask_key],
+                    to_onehot=self.label_mapping.merged_internal_value.max() + 1,
+                ),
+            ]
         )
 
         composed_transforms = monai.transforms.Compose(transforms, lazy=True)
@@ -259,12 +304,14 @@ class DeepsurferSegmentationDataset(monai.data.CacheDataset):
         super().__init__(elements_list, composed_transforms)
 
         # A transform that can be used to map the data back to the original
+        non_omitted_mapping = self.label_mapping[self.label_mapping.internal_value > 0]
         self.inverse_label_map_transform = monai.transforms.MapLabelValue(
-            orig_labels=list(self.inverse_label_mapping.keys()),
-            target_labels=list(self.inverse_label_mapping.values()),
+            orig_labels=non_omitted_mapping.internal_value.values.tolist(),
+            target_labels=non_omitted_mapping.original_value.values.tolist(),
         )
         self.image_key = image_key
         self.mask_key = mask_key
+        self.merged_mask_key = merged_mask_key
 
     def get_region_label(self, label: int) -> BrainRegions:
         """Get the original label for an internal label pixel value.
@@ -280,14 +327,34 @@ class DeepsurferSegmentationDataset(monai.data.CacheDataset):
             Original label corresponding to the input label.
 
         """
-        return BrainRegions(self.inverse_label_mapping[label])
+        row = self.label_mapping[self.label_mapping.internal_value == label].iloc[0]
+        return BrainRegions(row.original_value)
 
     @property
     def n_foreground_labels(self) -> int:
         """int: Number of foreground labels in segmentation masks."""
-        return len(self.inverse_label_mapping)
+        return self.label_mapping.internal_value.max()
 
     @property
     def n_total_labels(self) -> int:
         """int: Number of total labels (inc background) in segmentation masks."""
         return self.n_foreground_labels + 1
+
+    def get_unmerging_indices(self) -> list[int]:
+        """Get indices to use to undo the label merging.
+
+        Returns
+        -------
+        list[int]:
+            List of integers that, when applied to the channel dimension of a
+            one-hot encoded array of the merged label set (with lateral
+            structures merged into a single label), creates a one-hot encoded
+            array of the unmerged internal labels. This is used to map the
+            sagittal model's outputs to match the shape of the other models
+            in preparation for merging.
+
+        """
+        df = self.label_mapping[self.label_mapping.internal_value > 0].sort_values(
+            "internal_value"
+        )
+        return [0] + df.merged_internal_value.values.tolist()
