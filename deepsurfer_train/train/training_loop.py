@@ -209,17 +209,32 @@ def training_loop(
             SpatialFormat.TWO_D_CORONAL,
         ]
         channel_stack = int(model_config["channel_stack"])
+
+        # Sagittal model used lateral merged labels, others use
+        # usual set of labels
+        out_channels = {
+            SpatialFormat.TWO_D_SAGITTAL: train_dataset.n_total_merged_labels,
+            SpatialFormat.TWO_D_AXIAL: train_dataset.n_total_labels,
+            SpatialFormat.TWO_D_CORONAL: train_dataset.n_total_labels,
+        }
+        labels = {
+            SpatialFormat.TWO_D_SAGITTAL: train_dataset.merged_labels,
+            SpatialFormat.TWO_D_AXIAL: train_dataset.labels,
+            SpatialFormat.TWO_D_CORONAL: train_dataset.labels,
+        }
         models = {
             spatial_format: UNet(
                 spatial_dims=2,
                 in_channels=channel_stack,
-                out_channels=train_dataset.n_total_labels,
+                out_channels=out_channels[spatial_format],
                 **model_config["unet_params"],
             )
             for spatial_format in formats
         }
     else:
         channel_stack = 1
+        out_channels = {SpatialFormat.THREE_D: train_dataset.n_total_labels}
+        labels = {SpatialFormat.THREE_D: train_dataset.labels}
         models = {
             SpatialFormat.THREE_D: UNet(
                 spatial_dims=3,
@@ -242,6 +257,8 @@ def training_loop(
     scheduler_cls = getattr(torch.optim.lr_scheduler, model_config["scheduler"])
     optimizers = {}
     schedulers = {}
+
+    # Set up metrics
     per_class_dice_metrics = {}
     dice_metric = {}
     for spatial_format, model in models.items():
@@ -255,13 +272,11 @@ def training_loop(
         )
         dice_metric[spatial_format] = DiceMetric(
             include_background=False,
-            num_classes=val_dataset.n_total_labels,
+            num_classes=len(labels[spatial_format]),
         )
         per_class_dice_metrics[spatial_format] = {
-            val_dataset.get_region_label(c): DiceMetric(
-                include_background=False, num_classes=1
-            )
-            for c in range(1, val_dataset.n_total_labels)
+            c: DiceMetric(include_background=False, num_classes=1)
+            for c in labels[spatial_format]
         }
 
     # Set up tensorboard log
@@ -376,8 +391,7 @@ def training_loop(
 
                     # Calculate metrics in 3D
                     dice_metric[spatial_format](pred_labelmaps, gt_labelmaps)
-                    for c in range(1, val_dataset.n_total_labels):
-                        label = val_dataset.get_region_label(c)
+                    for c, label in enumerate(labels[spatial_format], 1):
                         per_class_dice_metrics[spatial_format][label](
                             pred_labelmaps == c,
                             gt_labelmaps == c,
@@ -390,7 +404,7 @@ def training_loop(
                         images=batch[val_dataset.image_key],
                         labelmaps=pred_labelmaps,
                         subject_ids=batch["subject_id"],
-                        num_classes=val_dataset.n_foreground_labels,
+                        num_classes=out_channels[spatial_format],
                         step=e,
                     )
 
@@ -403,10 +417,9 @@ def training_loop(
                 e,
             )
             dice_metric[spatial_format].reset()
-            for c in range(1, val_dataset.n_total_labels):
-                label = val_dataset.get_region_label(c)
+            for c, label in enumerate(labels[spatial_format], 1):
                 writer.add_scalar(
-                    f"per_class_dice_metric_3d_{spatial_format.name}/{label.name}",
+                    f"per_class_dice_metric_3d_{spatial_format.name}/{label}",
                     per_class_dice_metrics[spatial_format][label].aggregate(),
                     e,
                 )

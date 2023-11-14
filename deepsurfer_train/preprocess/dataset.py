@@ -313,7 +313,7 @@ class DeepsurferSegmentationDataset(monai.data.CacheDataset):
         self.mask_key = mask_key
         self.merged_mask_key = merged_mask_key
 
-    def get_region_label(self, label: int) -> BrainRegions:
+    def get_region_label_enum(self, label: int) -> BrainRegions:
         """Get the original label for an internal label pixel value.
 
         Parameters
@@ -330,15 +330,75 @@ class DeepsurferSegmentationDataset(monai.data.CacheDataset):
         row = self.label_mapping[self.label_mapping.internal_value == label].iloc[0]
         return BrainRegions(row.original_value)
 
+    def get_region_label(self, label: int) -> str:
+        """Get the original label for an internal label pixel value.
+
+        Parameters
+        ----------
+        label: int
+            Internal label value (used in segmentation masks).
+
+        Returns
+        -------
+        str:
+            Original label name corresponding to the input label.
+
+        """
+        row = self.label_mapping[self.label_mapping.internal_value == label].iloc[0]
+        return row.name
+
+    def get_merged_region_label(self, label: int) -> str:
+        """Get the original label for a merged internal label pixel value.
+
+        Parameters
+        ----------
+        label: int
+            Internal label value (used in segmentation masks).
+
+        Returns
+        -------
+        str:
+             Label name corresponding to the merged input label.
+
+        """
+        row = self.label_mapping[
+            self.label_mapping.merged_internal_value == label
+        ].iloc[0]
+        return row.merged_name
+
+    @property
+    def labels(self) -> list[str]:
+        """List of all labels used, in order, excluding background (0)."""
+        return self.label_mapping.sort_values("internal_value").name.values.tolist()
+
+    @property
+    def merged_labels(self) -> list[str]:
+        """List of all merged labels used, in order, excluding background (0)."""
+        return (
+            self.label_mapping[self.label_mapping.merged_internal_value > 0]
+            .sort_values("merged_internal_value")
+            .name.values.tolist()
+        )
+
     @property
     def n_foreground_labels(self) -> int:
         """int: Number of foreground labels in segmentation masks."""
         return self.label_mapping.internal_value.max()
 
     @property
+    def n_merged_foreground_labels(self) -> int:
+        """int: Number of merged foreground labels in segmentation masks."""
+        return self.label_mapping.merged_internal_value.max()
+
+    @property
     def n_total_labels(self) -> int:
         """int: Number of total labels (inc background) in segmentation masks."""
         return self.n_foreground_labels + 1
+
+    @property
+    def n_total_merged_labels(self) -> int:
+        """int: Number of total labels (inc background) in segmentation masks."""
+        return self.n_merged_foreground_labels + 1
 
     def get_unmerging_indices(self) -> list[int]:
         """Get indices to use to undo the label merging.
