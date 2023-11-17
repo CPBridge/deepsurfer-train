@@ -248,7 +248,7 @@ class DeepsurferSegmentationDataset(monai.data.CacheDataset):
                     shear_range=np.pi / 16.0,
                     translate_range=10.0,
                     scale_range=0.2,
-                    mode=["bilinear", "nearest"],
+                    mode=["bilinear", "nearest", "nearest"],
                     padding_mode="zeros",
                     lazy=True,
                     spatial_size=imsize,
@@ -290,11 +290,11 @@ class DeepsurferSegmentationDataset(monai.data.CacheDataset):
             [
                 monai.transforms.AsDiscreted(
                     keys=[mask_key],
-                    to_onehot=self.label_mapping.internal_value.max() + 1,
+                    to_onehot=int(self.label_mapping.internal_value.max()) + 1,
                 ),
                 monai.transforms.AsDiscreted(
                     keys=[merged_mask_key],
-                    to_onehot=self.label_mapping.merged_internal_value.max() + 1,
+                    to_onehot=int(self.label_mapping.merged_internal_value.max()) + 1,
                 ),
             ]
         )
@@ -383,12 +383,12 @@ class DeepsurferSegmentationDataset(monai.data.CacheDataset):
     @property
     def n_foreground_labels(self) -> int:
         """int: Number of foreground labels in segmentation masks."""
-        return self.label_mapping.internal_value.max()
+        return int(self.label_mapping.internal_value.max())
 
     @property
     def n_merged_foreground_labels(self) -> int:
         """int: Number of merged foreground labels in segmentation masks."""
-        return self.label_mapping.merged_internal_value.max()
+        return int(self.label_mapping.merged_internal_value.max())
 
     @property
     def n_total_labels(self) -> int:

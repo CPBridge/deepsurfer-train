@@ -9,6 +9,7 @@ from monai.losses import DiceLoss
 import numpy as np
 import torch
 from torch.utils.tensorboard import SummaryWriter
+from typeguard import typechecked
 
 
 from deepsurfer_train.enums import (
@@ -23,6 +24,7 @@ from deepsurfer_train.visualization.tensorboard import (
 )
 
 
+@typechecked
 def reformat_image(
     t: torch.Tensor,
     spatial_format: SpatialFormat,
@@ -50,6 +52,8 @@ def reformat_image(
         Tensor in the requested output format.
 
     """
+    if t.ndim != 5:
+        raise ValueError("Input must be a 5D tensor")
     if channel_stack % 2 != 1:
         raise ValueError("channel_stack must be an odd integer")
     if channel_stack == 1:
@@ -246,7 +250,7 @@ def training_loop(
     for model in models.values():
         model.cuda()
 
-    loss_fn = DiceLoss(
+    loss_fn = DiceCELoss(
         include_background=False,
         softmax=True,
         squared_pred=True,
@@ -306,8 +310,12 @@ def training_loop(
                     spatial_format,
                     channel_stack=channel_stack,
                 )
+                if spatial_format == SpatialFormat.TWO_D_SAGITTAL:
+                    mask_key = train_dataset.merged_mask_key
+                else:
+                    mask_key = train_dataset.mask_key
                 mask_image = reformat_image(
-                    batch[train_dataset.mask_key],
+                    batch[mask_key],
                     spatial_format,
                     channel_stack=1,
                 )
@@ -368,8 +376,12 @@ def training_loop(
                         spatial_format,
                         channel_stack=channel_stack,
                     )
+                    if spatial_format == SpatialFormat.TWO_D_SAGITTAL:
+                        mask_key = val_dataset.merged_mask_key
+                    else:
+                        mask_key = val_dataset.mask_key
                     mask_image = reformat_image(
-                        batch[val_dataset.mask_key],
+                        batch[mask_key],
                         spatial_format,
                         channel_stack=1,
                     )
