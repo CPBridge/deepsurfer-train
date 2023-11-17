@@ -5,7 +5,7 @@ from typing import Any
 import einops
 from monai.metrics import DiceMetric
 from monai.networks.nets import UNet
-from monai.losses import DiceLoss
+from monai.losses import DiceCELoss
 import numpy as np
 import torch
 from torch.utils.tensorboard import SummaryWriter
