@@ -272,7 +272,7 @@ def training_loop(
                 include_background=False,
                 softmax=True,
                 squared_pred=False,
-                weight=train_dataset.weights,
+                weight=torch.tensor(train_dataset.weights).cuda(),
             )
         }
     for model in models.values():
