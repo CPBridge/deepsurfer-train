@@ -240,19 +240,19 @@ def training_loop(
                 include_background=False,
                 softmax=True,
                 squared_pred=False,
-                weight=train_dataset.merged_weights,
+                weight=torch.tensor(train_dataset.merged_weights).cuda(),
             ),
             SpatialFormat.TWO_D_AXIAL: DiceCELoss(
                 include_background=False,
                 softmax=True,
                 squared_pred=False,
-                weight=train_dataset.weights,
+                weight=torch.tensor(train_dataset.weights).cuda(),
             ),
             SpatialFormat.TWO_D_CORONAL: DiceCELoss(
                 include_background=False,
                 softmax=True,
                 squared_pred=False,
-                weight=train_dataset.weights,
+                weight=torch.tensor(train_dataset.weights).cuda(),
             ),
         }
     else:
