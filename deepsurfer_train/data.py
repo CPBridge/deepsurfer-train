@@ -2,7 +2,7 @@
 from pathlib import Path
 
 from deepsurfer_train import locations
-from deepsurfer_train.enums import DatasetPartition
+from deepsurfer_train.enums import BrainRegions, DatasetPartition
 
 DATASETS_AVAILABLE = [
     "buckner40",
@@ -59,6 +59,57 @@ SPLITS = {
         ],
     }
 }
+
+
+# These were calculated over train partition of buckner40
+MEDIAN_VOLUMES = {
+    BrainRegions.LEFT_CEREBRAL_WHITE_MATTER: 211329.0,
+    BrainRegions.LEFT_CEREBRAL_CORTEX: 221814.5,
+    BrainRegions.LEFT_LATERAL_VENTRICLE: 12535.5,
+    BrainRegions.LEFT_INF_LAT_VENT: 397.0,
+    BrainRegions.LEFT_CEREBELLUM_WHITE_MATTER: 12560.5,
+    BrainRegions.LEFT_CEREBELLUM_CORTEX: 53347.0,
+    BrainRegions.LEFT_THALAMUS_PROPER: 6929.0,
+    BrainRegions.LEFT_CAUDATE: 3664.5,
+    BrainRegions.LEFT_PUTAMEN: 4828.5,
+    BrainRegions.LEFT_PALLIDUM: 1797.0,
+    BrainRegions.THIRD_VENTRICLE: 1251.0,
+    BrainRegions.FOURTH_VENTRICLE: 1702.5,
+    BrainRegions.BRAIN_STEM: 19741.0,
+    BrainRegions.LEFT_HIPPOCAMPUS: 3851.5,
+    BrainRegions.LEFT_AMYGDALA: 1445.0,
+    BrainRegions.CSF: 1085.0,
+    BrainRegions.LEFT_VENTRAL_DC: 3794.0,
+    BrainRegions.LEFT_ACCUMBENS_AREA: 555.0,
+    BrainRegions.LEFT_VESSEL: 27.0,
+    BrainRegions.LEFT_CHOROID_PLEXUS: 687.0,
+    BrainRegions.RIGHT_CEREBRAL_WHITE_MATTER: 213315.0,
+    BrainRegions.RIGHT_CEREBRAL_CORTEX: 222881.5,
+    BrainRegions.RIGHT_LATERAL_VENTRICLE: 12768.0,
+    BrainRegions.RIGHT_INF_LAT_VENT: 378.5,
+    BrainRegions.RIGHT_CEREBELLUM_WHITE_MATTER: 12291.0,
+    BrainRegions.RIGHT_CEREBELLUM_CORTEX: 52292.0,
+    BrainRegions.RIGHT_THALAMUS_PROPER: 6782.5,
+    BrainRegions.RIGHT_CAUDATE: 3836.5,
+    BrainRegions.RIGHT_PUTAMEN: 4808.0,
+    BrainRegions.RIGHT_PALLIDUM: 1936.5,
+    BrainRegions.RIGHT_HIPPOCAMPUS: 3745.5,
+    BrainRegions.RIGHT_AMYGDALA: 1586.5,
+    BrainRegions.RIGHT_ACCUMBENS_AREA: 548.5,
+    BrainRegions.RIGHT_VENTRAL_DC: 3774.5,
+    BrainRegions.RIGHT_VESSEL: 18.0,
+    BrainRegions.RIGHT_CHOROID_PLEXUS: 751.5,
+    BrainRegions.FIFTH_VENTRICLE: 0.0,
+    BrainRegions.WM_HYPOINTENSITIES: 1981.0,
+    BrainRegions.NON_WM_HYPOINTENSITIES: 0.0,
+    BrainRegions.OPTIC_CHIASM: 176.5,
+    BrainRegions.CC_POSTERIOR: 997.0,
+    BrainRegions.CC_MID_POSTERIOR: 478.0,
+    BrainRegions.CC_CENTRAL: 448.0,
+    BrainRegions.CC_MID_ANTERIOR: 438.0,
+    BrainRegions.CC_ANTERIOR: 940.0,
+}
+BACKGROUND_MEDIAN_VOLUME = 15669150.0
 
 
 def get_latest_fs_version(processed_dir: Path | str) -> str:

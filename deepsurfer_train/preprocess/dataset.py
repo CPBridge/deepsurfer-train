@@ -9,7 +9,11 @@ import torch
 from typeguard import typechecked
 
 from deepsurfer_train import locations
-from deepsurfer_train.data import list_dataset_files
+from deepsurfer_train.data import (
+    list_dataset_files,
+    MEDIAN_VOLUMES,
+    BACKGROUND_MEDIAN_VOLUME,
+)
 from deepsurfer_train.enums import (
     DatasetPartition,
     BrainRegions,
@@ -21,7 +25,12 @@ from deepsurfer_train.preprocess.transforms import (
 )
 
 
-DEFAULT_EXCLUDED_REGIONS = ("FIFTH_VENTRICLE", "NON_WM_HYPOINTENSITIES")
+DEFAULT_EXCLUDED_REGIONS = (
+    "FIFTH_VENTRICLE",
+    "NON_WM_HYPOINTENSITIES",
+    "LEFT_VESSEL",
+    "RIGHT_VESSEL",
+)
 
 
 def get_label_mapping(
@@ -62,9 +71,20 @@ def get_label_mapping(
     # Dictionary of merged label names to values
     merged_labels: dict[str, int] = {}
 
+    background_row = {
+        "name": "BACKGROUND",
+        "original_value": 0,
+        "internal_value": 0,
+        "original_volume": BACKGROUND_MEDIAN_VOLUME,
+        "merged_name": "BACKGROUND",
+        "merged_internal_value": 0,
+    }
+    mapping.append(background_row)
+
     excluded_regions = [] if excluded_regions is None else excluded_regions
     for label in BrainRegions:
         row = {"name": label.name, "original_value": label.value}
+        row["original_volume"] = MEDIAN_VOLUMES[label]
         if label in excluded_regions:
             # Map this value to zero
             row["internal_value"] = 0
@@ -85,6 +105,36 @@ def get_label_mapping(
         mapping.append(row)
 
     mapping_df = pd.DataFrame(mapping)
+
+    # Calculate weights for each internal class as inversely proportional
+    # to the median volume, rescaled to sum to 1
+    mapping_df["weight"] = pd.Series(0.0, index=mapping_df.index)
+    weight_sum = 0.0
+    for v in range(mapping_df.internal_value.max() + 1):
+        source_rows = mapping_df[mapping_df.internal_value == v]
+        internal_volume = source_rows.original_volume.sum()
+        weight = 1.0 / internal_volume
+        mapping_df.loc[
+            mapping_df.internal_value == v,
+            "weight"
+        ] = weight
+        weight_sum += weight
+    mapping_df["weight"] = mapping_df["weight"] / weight_sum
+
+    # Repeat for the merged classes
+    mapping_df["merged_weight"] = pd.Series(0.0, index=mapping_df.index)
+    weight_sum = 0.0
+    for v in range(mapping_df.merged_internal_value.max() + 1):
+        source_rows = mapping_df[mapping_df.merged_internal_value == v]
+        merged_internal_volume = source_rows.original_volume.sum()
+        weight = 1.0 / merged_internal_volume
+        mapping_df.loc[
+            mapping_df.merged_internal_value == v,
+            "merged_weight"
+        ] = weight
+        weight_sum += weight
+    mapping_df["merged_weight"] = mapping_df["merged_weight"] / weight_sum
+
     return mapping_df
 
 
@@ -369,7 +419,9 @@ class DeepsurferSegmentationDataset(monai.data.CacheDataset):
     @property
     def labels(self) -> list[str]:
         """List of all labels used, in order, excluding background (0)."""
-        return self.label_mapping.sort_values("internal_value").name.values.tolist()
+        return self.label_mapping[
+            self.label_mapping.internal_value > 0
+        ].sort_values("internal_value").name.values.tolist()
 
     @property
     def merged_labels(self) -> list[str]:
@@ -399,6 +451,22 @@ class DeepsurferSegmentationDataset(monai.data.CacheDataset):
     def n_total_merged_labels(self) -> int:
         """int: Number of total labels (inc background) in segmentation masks."""
         return self.n_merged_foreground_labels + 1
+
+    @property
+    def weights(self) -> list[float]:
+        """Weights for each internal label (including background)."""
+        return [
+            self.label_mapping[self.label_mapping.internal_value == v].iloc[0].weight
+            for v in range(self.label_mapping.internal_value.max() + 1)
+        ]
+
+    @property
+    def merged_weights(self) -> list[float]:
+        """Weights for each merged internal label (including background)."""
+        return [
+            self.label_mapping[self.label_mapping.merged_internal_value == v].iloc[0].merged_weight
+            for v in range(self.label_mapping.merged_internal_value.max() + 1)
+        ]
 
     def get_unmerging_indices(self) -> list[int]:
         """Get indices to use to undo the label merging.
