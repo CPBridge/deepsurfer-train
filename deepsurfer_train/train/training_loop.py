@@ -17,7 +17,6 @@ from deepsurfer_train.enums import (
     SpatialFormat,
     ExperimentType,
 )
-from deepsurfer_train.data import BACKGROUND_MEDIAN_VOLUME, MEDIAN_VOLUMES
 from deepsurfer_train import locations
 from deepsurfer_train.preprocess.dataset import DeepsurferSegmentationDataset
 from deepsurfer_train.visualization.tensorboard import (
@@ -255,7 +254,7 @@ def training_loop(
                 squared_pred=False,
                 weight=train_dataset.weights,
             ),
-        )
+        }
     else:
         channel_stack = 1
         out_channels = {SpatialFormat.THREE_D: train_dataset.n_total_labels}
@@ -275,10 +274,9 @@ def training_loop(
                 squared_pred=False,
                 weight=train_dataset.weights,
             )
-        )
+        }
     for model in models.values():
         model.cuda()
-
 
     # Set up optimizer and scheduler
     optimizer_cls = getattr(torch.optim, model_config["optimizer"])
