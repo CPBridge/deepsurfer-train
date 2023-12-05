@@ -451,13 +451,23 @@ def training_loop(
                 e,
             )
             dice_metric[spatial_format].reset()
+
+            per_class_averages = []
             for c, label in enumerate(labels[spatial_format], 1):
+                val = (per_class_dice_metrics[spatial_format][label].aggregate(),)
                 writer.add_scalar(
                     f"per_class_dice_metric_3d_{spatial_format.name}/{label}",
-                    per_class_dice_metrics[spatial_format][label].aggregate(),
+                    val,
                     e,
                 )
                 per_class_dice_metrics[spatial_format][label].reset()
+                per_class_averages.append(val)
+
+            writer.add_scalar(
+                f"average_dice_metric_3d_{spatial_format.name}",
+                np.mean(per_class_averages),
+                e,
+            )
 
             print(f"Epoch {e}, val loss ({spatial_format.name}) {epoch_loss:.4f}")
 
