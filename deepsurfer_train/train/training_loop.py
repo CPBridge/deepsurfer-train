@@ -22,7 +22,7 @@ from deepsurfer_train.preprocess.dataset import DeepsurferSegmentationDataset
 from deepsurfer_train.visualization.tensorboard import (
     write_batch_multiplanar_tensorboard,
 )
-from deepsurfer.models.fastsurfer import aggregate_views
+from deepsurfer_train.models.fastsurfer import aggregate_views
 
 
 @typechecked
@@ -499,7 +499,7 @@ def training_loop(
 
             per_class_averages = []
             for c, label in enumerate(labels[spatial_format], 1):
-                val = per_class_dice_metrics[spatial_format][label].aggregate()
+                val = per_class_dice_metrics[spatial_format][label].aggregate().cpu().item()
                 writer.add_scalar(
                     f"per_class_dice_metric_3d_{spatial_format.name}/{label}",
                     val,
@@ -539,7 +539,7 @@ def training_loop(
 
             per_class_averages = []
             for c, label in enumerate(val_dataset.labels, 1):
-                val = per_class_aggregated_dice_metrics[label].aggregate()
+                val = per_class_aggregated_dice_metrics[label].aggregate().cpu().item()
                 writer.add_scalar(
                     f"per_class_dice_metric_3d_aggregated/{label}",
                     val,
