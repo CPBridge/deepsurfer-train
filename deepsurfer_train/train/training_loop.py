@@ -22,6 +22,7 @@ from deepsurfer_train.preprocess.dataset import DeepsurferSegmentationDataset
 from deepsurfer_train.visualization.tensorboard import (
     write_batch_multiplanar_tensorboard,
 )
+from deepsurfer.models.fastsurfer import aggregate_views
 
 
 @typechecked
@@ -287,6 +288,14 @@ def training_loop(
     # Set up metrics
     per_class_dice_metrics = {}
     dice_metric = {}
+    aggregated_dice_metric = DiceMetric(
+        include_background=False,
+        num_classes=train_dataset.n_total_labels,
+    )
+    per_class_aggregated_dice_metrics = {
+        c: DiceMetric(include_background=False, num_classes=1)
+        for c in train_dataset.labels
+    }
     for spatial_format, model in models.items():
         optimizers[spatial_format] = optimizer_cls(
             model.parameters(),
@@ -390,6 +399,8 @@ def training_loop(
                         step=e,
                     )
 
+                predictions_per_format = {}
+
                 for spatial_format in models.keys():
                     model = models[spatial_format]
 
@@ -420,6 +431,7 @@ def training_loop(
                         spatial_format,
                         batch_size,
                     )
+                    predictions_per_format[spatial_format] = prediction
 
                     pred_labelmaps = prediction.argmax(dim=1, keepdim=True)
 
@@ -442,6 +454,39 @@ def training_loop(
                         step=e,
                     )
 
+                if experiment_type == ExperimentType.TWO_D_ENSEMBLE:
+                    # Metrics on the aggregated prediction
+                    aggregated_prediction = aggregate_views(
+                        axial_pred=predictions_per_format[SpatialFormat.TWO_D_AXIAL],
+                        coronal_pred=predictions_per_format[
+                            SpatialFormat.TWO_D_CORONAL
+                        ],
+                        sagittal_pred=predictions_per_format[
+                            SpatialFormat.TWO_D_SAGITTAL
+                        ],
+                        sagittal_unmerging_indices=val_dataset.get_unmerging_indices(),
+                    )
+                    aggregated_labelmaps = aggregated_prediction.argmax(
+                        dim=1, keepdim=True
+                    )
+                    aggregated_dice_metric(aggregated_labelmaps, gt_labelmaps)
+                    for c, label in enumerate(val_dataset.labels, 1):
+                        per_class_aggregated_dice_metrics[label](
+                            aggregated_labelmaps == c,
+                            gt_labelmaps == c,
+                        )
+
+                    write_batch_multiplanar_tensorboard(
+                        writer=writer,
+                        tag_group_prefix="val",
+                        tag_prefix="prediction_aggregated",
+                        images=batch[val_dataset.image_key],
+                        labelmaps=aggregated_labelmaps,
+                        subject_ids=batch["subject_id"],
+                        num_classes=val_dataset.n_total_labels,
+                        step=e,
+                    )
+
         for spatial_format in models.keys():
             epoch_loss = np.mean(batch_losses[spatial_format])
             writer.add_scalar(f"loss/val_{spatial_format.name}", epoch_loss, e)
@@ -454,7 +499,7 @@ def training_loop(
 
             per_class_averages = []
             for c, label in enumerate(labels[spatial_format], 1):
-                val = (per_class_dice_metrics[spatial_format][label].aggregate(),)
+                val = per_class_dice_metrics[spatial_format][label].aggregate()
                 writer.add_scalar(
                     f"per_class_dice_metric_3d_{spatial_format.name}/{label}",
                     val,
@@ -483,6 +528,31 @@ def training_loop(
                 schedulers[spatial_format].step(epoch_loss)
             else:
                 schedulers[spatial_format].step()
+
+        if experiment_type == ExperimentType.TWO_D_ENSEMBLE:
+            writer.add_scalar(
+                "dice_metric_3d/val_aggregated",
+                aggregated_dice_metric.aggregate(),
+                e,
+            )
+            aggregated_dice_metric.reset()
+
+            per_class_averages = []
+            for c, label in enumerate(val_dataset.labels, 1):
+                val = per_class_aggregated_dice_metrics[label].aggregate()
+                writer.add_scalar(
+                    f"per_class_dice_metric_3d_aggregated/{label}",
+                    val,
+                    e,
+                )
+                per_class_aggregated_dice_metrics[label].reset()
+                per_class_averages.append(val)
+
+            writer.add_scalar(
+                "average_dice_metric_3d_aggregated",
+                np.mean(per_class_averages),
+                e,
+            )
 
         # Save all models together
         weights = {
