@@ -427,7 +427,7 @@ def training_loop(
 
                     # Move prediction back to 3D format
                     prediction = inverse_reformat_image(
-                        prediction,
+                        prediction.detach(),
                         spatial_format,
                         batch_size,
                     )
