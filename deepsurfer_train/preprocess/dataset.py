@@ -64,14 +64,14 @@ def get_label_mapping(
         return name
 
     # Rows will be appended here
-    mapping: list[dict[str, int | str]] = []
+    mapping: list[dict[str, float | str]] = []
     next_label = 1
     next_merged_label = 1
 
     # Dictionary of merged label names to values
     merged_labels: dict[str, int] = {}
 
-    background_row = {
+    background_row: dict[str, float | str] = {
         "name": "BACKGROUND",
         "original_value": 0,
         "internal_value": 0,
@@ -83,8 +83,11 @@ def get_label_mapping(
 
     excluded_regions = [] if excluded_regions is None else excluded_regions
     for label in BrainRegions:
-        row = {"name": label.name, "original_value": label.value}
-        row["original_volume"] = MEDIAN_VOLUMES[label]
+        row = {
+            "name": label.name,
+            "original_value": label.value,
+            "original_volume": MEDIAN_VOLUMES[label],
+        }
         if label in excluded_regions:
             # Map this value to zero
             row["internal_value"] = 0
@@ -114,10 +117,7 @@ def get_label_mapping(
         source_rows = mapping_df[mapping_df.internal_value == v]
         internal_volume = source_rows.original_volume.sum()
         weight = 1.0 / internal_volume
-        mapping_df.loc[
-            mapping_df.internal_value == v,
-            "weight"
-        ] = weight
+        mapping_df.loc[mapping_df.internal_value == v, "weight"] = weight
         weight_sum += weight
     mapping_df["weight"] = mapping_df["weight"] / weight_sum
 
@@ -128,10 +128,7 @@ def get_label_mapping(
         source_rows = mapping_df[mapping_df.merged_internal_value == v]
         merged_internal_volume = source_rows.original_volume.sum()
         weight = 1.0 / merged_internal_volume
-        mapping_df.loc[
-            mapping_df.merged_internal_value == v,
-            "merged_weight"
-        ] = weight
+        mapping_df.loc[mapping_df.merged_internal_value == v, "merged_weight"] = weight
         weight_sum += weight
     mapping_df["merged_weight"] = mapping_df["merged_weight"] / weight_sum
 
@@ -419,9 +416,11 @@ class DeepsurferSegmentationDataset(monai.data.CacheDataset):
     @property
     def labels(self) -> list[str]:
         """List of all labels used, in order, excluding background (0)."""
-        return self.label_mapping[
-            self.label_mapping.internal_value > 0
-        ].sort_values("internal_value").name.values.tolist()
+        return (
+            self.label_mapping[self.label_mapping.internal_value > 0]
+            .sort_values("internal_value")
+            .name.values.tolist()
+        )
 
     @property
     def merged_labels(self) -> list[str]:
@@ -464,7 +463,9 @@ class DeepsurferSegmentationDataset(monai.data.CacheDataset):
     def merged_weights(self) -> list[float]:
         """Weights for each merged internal label (including background)."""
         return [
-            self.label_mapping[self.label_mapping.merged_internal_value == v].iloc[0].merged_weight
+            self.label_mapping[self.label_mapping.merged_internal_value == v]
+            .iloc[0]
+            .merged_weight
             for v in range(self.label_mapping.merged_internal_value.max() + 1)
         ]
 

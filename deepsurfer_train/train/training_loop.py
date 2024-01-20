@@ -3,12 +3,12 @@ from pathlib import Path
 from typing import Any
 
 import einops
-from monai.metrics import DiceMetric
-from monai.networks.nets import UNet
-from monai.losses import DiceCELoss
+from monai.metrics.meandice import DiceMetric
+from monai.networks.nets.unet import UNet
+from monai.losses.dice import DiceCELoss
 import numpy as np
 import torch
-from torch.utils.tensorboard import SummaryWriter
+from torch.utils.tensorboard.writer import SummaryWriter
 from typeguard import typechecked
 
 
@@ -256,7 +256,47 @@ def training_loop(
                 weight=torch.tensor(train_dataset.weights).cuda(),
             ),
         }
-    else:
+    elif experiment_type in (
+        ExperimentType.TWO_D_CORONAL,
+        ExperimentType.TWO_D_AXIAL,
+        ExperimentType.TWO_D_SAGITTAL,
+    ):
+        spatial_format = SpatialFormat(ExperimentType.name)
+        formats = [spatial_format]
+        channel_stack = int(model_config["channel_stack"])
+
+        # Sagittal model used lateral merged labels, others use
+        # usual set of labels
+        if spatial_format == SpatialFormat.TWO_D_SAGITTAL:
+            out_channels = {
+                SpatialFormat.TWO_D_SAGITTAL: train_dataset.n_total_merged_labels,
+            }
+            labels = {
+                SpatialFormat.TWO_D_SAGITTAL: train_dataset.merged_labels,
+            }
+            weights = train_dataset.merged_weights
+        else:
+            out_channels = {spatial_format: train_dataset.n_total_labels}
+            labels = {spatial_format: train_dataset.labels}
+            weights = train_dataset.weights
+
+        models = {
+            spatial_format: UNet(
+                spatial_dims=2,
+                in_channels=channel_stack,
+                out_channels=out_channels[spatial_format],
+                **model_config["unet_params"],
+            )
+        }
+        loss_fn = {
+            spatial_format: DiceCELoss(
+                include_background=False,
+                softmax=True,
+                squared_pred=False,
+                weight=torch.tensor(weights).cuda(),
+            ),
+        }
+    elif experiment_type == ExperimentType.THREE_D:
         channel_stack = 1
         out_channels = {SpatialFormat.THREE_D: train_dataset.n_total_labels}
         labels = {SpatialFormat.THREE_D: train_dataset.labels}
@@ -276,6 +316,9 @@ def training_loop(
                 weight=torch.tensor(train_dataset.weights).cuda(),
             )
         }
+    else:
+        raise ValueError("No such experiment type.")
+
     for model in models.values():
         model.cuda()
 
@@ -499,7 +542,12 @@ def training_loop(
 
             per_class_averages = []
             for c, label in enumerate(labels[spatial_format], 1):
-                val = per_class_dice_metrics[spatial_format][label].aggregate().cpu().item()
+                val = (
+                    per_class_dice_metrics[spatial_format][label]
+                    .aggregate()
+                    .cpu()  # type: ignore
+                    .item()
+                )
                 writer.add_scalar(
                     f"per_class_dice_metric_3d_{spatial_format.name}/{label}",
                     val,
@@ -539,7 +587,12 @@ def training_loop(
 
             per_class_averages = []
             for c, label in enumerate(val_dataset.labels, 1):
-                val = per_class_aggregated_dice_metrics[label].aggregate().cpu().item()
+                val = (
+                    per_class_aggregated_dice_metrics[label]
+                    .aggregate()
+                    .cpu()  # type: ignore
+                    .item()
+                )
                 writer.add_scalar(
                     f"per_class_dice_metric_3d_aggregated/{label}",
                     val,
@@ -555,8 +608,8 @@ def training_loop(
             )
 
         # Save all models together
-        weights = {
+        model_weights = {
             spatial_format.name: model.state_dict()
             for spatial_format, model in models.items()
         }
-        torch.save(weights, weights_dir / f"weights_{e:04d}.pt")
+        torch.save(model_weights, weights_dir / f"weights_{e:04d}.pt")
