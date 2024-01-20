@@ -1,5 +1,5 @@
 {
-    "experiment_type": "TWO_D_ENSEMBLE",
+    "experiment_type": "TWO_D_AXIAL",
     "epochs": 400,
     "batch_size": 1,
     "batches_per_epoch": 1000,
