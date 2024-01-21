@@ -170,7 +170,7 @@ def aggregate_views(
     t = list(predictions.values())[0]
     c = len(sagittal_unmerging_indices)
     b, _, h, w, d = t.shape
-    aggregated = torch.zeros((b, c, h, w, d))
+    aggregated = torch.zeros((b, c, h, w, d), device=t.device)
     weights = 0.0
     for spatial_format, t in predictions.items():
         if spatial_format == SpatialFormat.THREE_D:
@@ -412,8 +412,9 @@ class UNet2DEnsembleMethod(MethodProtocol):
         for spatial_format in self.models.keys():
             model = self.models[spatial_format]
 
-            input_image = reformat_image(
-                batch[self.val_dataset.image_key],  # type: ignore
+            input_image = batch[self.val_dataset.image_key]
+            input_image_2d = reformat_image(
+                input_image,  # type: ignore
                 spatial_format,
                 channel_stack=self.channel_stack,
             )
@@ -427,7 +428,7 @@ class UNet2DEnsembleMethod(MethodProtocol):
                 channel_stack=1,
             )
 
-            prediction = model(input_image)
+            prediction = model(input_image_2d)
 
             loss = self.loss_fns[spatial_format](prediction, mask_image)
 
@@ -475,7 +476,7 @@ class UNet2DEnsembleMethod(MethodProtocol):
             aggregated_labelmaps = aggregated_prediction.argmax(dim=1, keepdim=True)
             return total_loss, aggregated_labelmaps
         else:
-            return total_loss, list(predictions_per_format.values())[0]
+            return total_loss, pred_labelmaps
 
     def val_end(self, e: int, val_loss: float) -> None:
         """Callback for the end of the validation process.

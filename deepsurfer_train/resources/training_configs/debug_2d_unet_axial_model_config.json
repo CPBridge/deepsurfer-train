@@ -17,7 +17,7 @@
     },
     "method": "UNet2DEnsembleMethod",
     "method_params": {
-        "spatial_formats": ["TWO_D_AXIAL", "TWO_D_SAGITTAL", "TWO_D_CORONAL"],
+        "spatial_formats": ["TWO_D_AXIAL"],
         "channel_stack": 7
     }
 }
