@@ -1,5 +1,4 @@
 {
-    "experiment_type": "TWO_D_ENSEMBLE",
     "epochs": 1000,
     "batch_size": 1,
     "batches_per_epoch": 10,
@@ -12,9 +11,13 @@
         "factor": 0.1,
         "patience": 15
     },
-    "channel_stack": 7,
     "unet_params": {
         "channels": [16, 16, 32, 32, 32, 32, 32],
         "strides": [2, 2, 2, 2, 2, 2]
+    },
+    "method": "UNet2DEnsembleMethod",
+    "method_params": {
+        "spatial_formats": ["TWO_D_AXIAL"],
+        "channel_stack": 7
     }
 }

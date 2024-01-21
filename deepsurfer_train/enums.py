@@ -18,16 +18,6 @@ class SpatialFormat(Enum):
     TWO_D_CORONAL = "TWO_D_CORONAL"
 
 
-class ExperimentType(Enum):
-    """Enum listing options for types of model experiment."""
-
-    THREE_D = "THREE_D"
-    TWO_D_CORONAL = "TWO_D_CORONAL"
-    TWO_D_AXIAL = "TWO_D_AXIAL"
-    TWO_D_SAGITTAL = "TWO_D_SAGITTAL"
-    TWO_D_ENSEMBLE = "TWO_D_ENSEMBLE"
-
-
 class DatasetPartition(Enum):
     """Enum listing partitions of the dataset."""
 
