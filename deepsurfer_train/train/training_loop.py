@@ -261,7 +261,7 @@ def training_loop(
         ExperimentType.TWO_D_AXIAL,
         ExperimentType.TWO_D_SAGITTAL,
     ):
-        spatial_format = SpatialFormat(ExperimentType.name)
+        spatial_format = SpatialFormat(experiment_type.name)
         formats = [spatial_format]
         channel_stack = int(model_config["channel_stack"])
 
