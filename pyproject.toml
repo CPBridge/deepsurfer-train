@@ -35,6 +35,7 @@ nibabel = "^5.1.0"
 tensorboard = "^2.15.0"
 tqdm = "^4.0.0"
 einops = "^0.7.0"
+voxelmorph = { git = "https://github.com/voxelmorph/voxelmorph.git", rev = "ca3d47a2c254aae9a0c0e1b30c24c324c211ebc8" }
 
 [tool.poetry.group.dev.dependencies]
 # dev dependencies are those used when developing the package but are not needed
