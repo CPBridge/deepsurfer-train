@@ -5,7 +5,7 @@
     "batches_per_epoch": 1000,
     "optimizer": "Adam",
     "optimizer_params": {
-        "lr": 1e-3
+        "lr": 1e-4
     },
     "scheduler": "ReduceLROnPlateau",
     "scheduler_params": {
