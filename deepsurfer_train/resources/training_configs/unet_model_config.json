@@ -1,5 +1,4 @@
 {
-    "experiment_type": "THREE_D",
     "epochs": 300,
     "batch_size": 1,
     "batches_per_epoch": 1000,
@@ -15,5 +14,7 @@
     "unet_params": {
         "channels": [16, 16, 32, 32, 64, 64, 128],
         "strides": [2, 2, 2, 2, 2, 2]
-    }
+    },
+    "method": "UNet3DMethod",
+    "method_params": {}
 }
