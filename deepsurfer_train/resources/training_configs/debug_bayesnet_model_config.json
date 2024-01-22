@@ -1,0 +1,25 @@
+{
+    "epochs": 1000,
+    "batch_size": 1,
+    "batches_per_epoch": 10,
+    "optimizer": "Adam",
+    "optimizer_params": {
+        "lr": 1e-3
+    },
+    "scheduler": "ReduceLROnPlateau",
+    "scheduler_params": {
+        "factor": 0.1,
+        "patience": 15
+    },
+    "unet_params": {
+        "channels": [16, 16, 32, 32, 32, 32, 32],
+        "strides": [2, 2, 2, 2, 2, 2]
+    },
+    "method": "BayesNetMethod",
+    "method_params": {
+        "head_channels": 32,
+        "int_steps": 7,
+        "int_downsize": 2,
+        "grad_loss_weight": 0.05
+    }
+}

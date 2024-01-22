@@ -202,6 +202,7 @@ class DeepsurferSegmentationDataset(monai.data.CacheDataset):
             imsize = [imsize] * 3
         if len(imsize) != 3:
             raise ValueError("Imsize must have length 3.")
+        self.imsize = imsize
 
         if synth_probability < 0.0 or synth_probability > 1.0:
             raise ValueError(
@@ -281,7 +282,7 @@ class DeepsurferSegmentationDataset(monai.data.CacheDataset):
         transforms.append(
             monai.transforms.ResizeWithPadOrCropd(
                 keys=all_keys,
-                spatial_size=imsize,
+                spatial_size=self.imsize,
                 lazy=True,
             )
         )
@@ -298,7 +299,7 @@ class DeepsurferSegmentationDataset(monai.data.CacheDataset):
                     mode=["bilinear", "nearest", "nearest"],
                     padding_mode="zeros",
                     lazy=True,
-                    spatial_size=imsize,
+                    spatial_size=self.imsize,
                     cache_grid=True,
                     device=device,
                 )

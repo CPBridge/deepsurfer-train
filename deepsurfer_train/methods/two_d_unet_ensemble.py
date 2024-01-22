@@ -192,7 +192,14 @@ def aggregate_views(
 
 @typechecked
 class UNet2DEnsembleMethod(MethodProtocol):
-    """A method using an ensemble of 2D UNets segmentation model."""
+    """A method using an ensemble of 2D UNet segmentation models.
+
+    This folows the Fastsurfer implementation.
+
+    Henschel et al 2020. "FastSurfer - A fast and accurate deep learning based
+    neuroimaging pipeline"
+
+    """
 
     def __init__(
         self,

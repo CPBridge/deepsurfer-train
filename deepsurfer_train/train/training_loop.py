@@ -18,6 +18,7 @@ from deepsurfer_train.visualization.tensorboard import (
 )
 from deepsurfer_train.methods.three_d_unet import UNet3DMethod
 from deepsurfer_train.methods.two_d_unet_ensemble import UNet2DEnsembleMethod
+from deepsurfer_train.methods.bayesnet import BayesNetMethod
 
 
 def training_loop(
@@ -108,8 +109,9 @@ def training_loop(
     method_cls = {
         "UNet2DEnsembleMethod": UNet2DEnsembleMethod,
         "UNet3DMethod": UNet3DMethod,
+        "BayesNetMethod": BayesNetMethod,
     }[method_name]
-    method = method_cls(
+    method = method_cls(  # type: ignore
         model_config=model_config,
         method_params=model_config["method_params"],
         writer=writer,
