@@ -147,7 +147,7 @@ class DeepsurferSegmentationDataset(monai.data.CacheDataset):
         root_dir: Path | str = locations.project_dataset_dir,
         image_file: str = "mri/brainmask.mgz",
         mask_file: str = "mri/aseg.mgz",
-        imsize: Sequence[int] | int = 255,
+        imsize: Sequence[int] | int = 256,
         excluded_regions: Sequence[BrainRegions | str]
         | None = DEFAULT_EXCLUDED_REGIONS,
         use_spatial_augmentation: bool = False,
