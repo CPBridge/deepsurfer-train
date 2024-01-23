@@ -27,6 +27,7 @@ class BayesNet(torch.nn.Module):
     def __init__(
         self,
         unet_params: dict[str, Any],
+        n_labels: int,
         head_channels: int,
         imsize: tuple[int, int, int],
         int_steps: int = 7,
@@ -38,6 +39,8 @@ class BayesNet(torch.nn.Module):
         ----------
         unet_params: dict[str, Any]
             Dictionary of parameters for the backbone UNet.
+        n_labels: int
+            Number of labels in the atlas (including background).
         head_channels: int
             Number of output channels of UNet.
         imsize: tuple[int, int, int]
@@ -50,9 +53,10 @@ class BayesNet(torch.nn.Module):
         """
         super().__init__()
         ndims = 3
+        n_input_channels = n_labels + 1  # image + atlas channels (1 per label)
         self.backbone = UNet(
             spatial_dims=ndims,
-            in_channels=2,  # image and atlas
+            in_channels=n_input_channels,  # image and atlas
             out_channels=head_channels,
             **unet_params,
         )
@@ -60,19 +64,22 @@ class BayesNet(torch.nn.Module):
         # Two additional layers for the likelhood prediction
         self.mu_head = torch.nn.Conv3d(
             in_channels=head_channels,
-            out_channels=1,
+            out_channels=n_labels,
             kernel_size=3,
+            padding="same",
         )
         self.sigma_head = torch.nn.Conv3d(
             in_channels=head_channels,
-            out_channels=1,
+            out_channels=n_labels,
             kernel_size=3,
+            padding="same",
         )
         # One additional layer for the velocity prediction
         self.velocity_head = torch.nn.Conv3d(
             in_channels=head_channels,
             out_channels=ndims,
             kernel_size=3,
+            padding="same",
         )
 
         # Configure optional resize layers (downsize)
@@ -88,7 +95,7 @@ class BayesNet(torch.nn.Module):
         self._integrate = VecInt(down_shape, int_steps) if int_steps > 0 else None
 
         # Configure transformer
-        self._transformer = SpatialTransformer(self.imsize)
+        self._transformer = SpatialTransformer(imsize)
 
         if torch.cuda.is_available():
             self._transformer.cuda()
@@ -126,10 +133,10 @@ class BayesNet(torch.nn.Module):
         features = self.backbone(model_input)
 
         mu = self.mu_head(features)
-        mu = torch.nn.functional.adaptive_avg_pool3d(mu, (1, 1, 1))
+        mu = torch.nn.functional.adaptive_avg_pool3d(mu, (1, 1, 1)).squeeze()
         sigma_2 = self.sigma_head(features)
         sigma_2 = torch.nn.functional.elu(sigma_2) + 1.0  # force positive
-        sigma_2 = torch.nn.functional.adaptive_avg_pool3d(mu, (1, 1, 1))
+        sigma_2 = torch.nn.functional.adaptive_avg_pool3d(sigma_2, (1, 1, 1)).squeeze()
 
         flow = self.velocity_head(features)
 
@@ -153,14 +160,26 @@ class BayesNet(torch.nn.Module):
         warped_prior = self._transformer(atlas, flow)
         # warped_im = self._transformer(image, inv_flow)
 
-        log_likelhood = -torch.nn.functional.gaussian_nll_loss(
-            input=im,
-            target=mu,
-            var=sigma_2,
+        nlabels = mu.shape[0]
+
+        # Need to flatten the image to pass to gaussian likelihood function
+        # and repeat along channel axis in order to find likelihood under
+        # multiple mean/variance combos
+        # TODO this will only work for batch size 1 at the moment, needs to
+        # be generalized
+        repeated_flat_im = im.reshape([1, -1]).expand([nlabels, -1])
+        log_likelihood_flat = -torch.nn.functional.gaussian_nll_loss(
+            input=repeated_flat_im,
+            target=mu[:, None],
+            var=sigma_2[:, None],
             reduction="none",
             full=True,
         )
-        log_posterior = log_likelhood + torch.log(warped_prior)
+
+        # Put the log likelihood back in the image shape
+        log_likelihood = log_likelihood_flat.view(atlas.shape)
+
+        log_posterior = log_likelihood + torch.log(warped_prior)
 
         return log_posterior, warped_prior, preint_flow
 
@@ -207,12 +226,16 @@ class BayesNetMethod(MethodProtocol):
         self.model = BayesNet(
             unet_params=model_config["unet_params"],
             head_channels=method_params["head_channels"],
+            n_labels=len(self.labels) + 1,
             imsize=tuple(self.train_dataset.imsize),
             int_steps=method_params["int_steps"],
             int_downsize=method_params["int_downsize"],
         )
         self.model.cuda()
-        self.atlas = self.get_preprocessed_atlas()
+        self.atlas = self.get_preprocessed_atlas()[None]
+
+        # Flatten the atlas in order to create a reasonably sized input image
+        # for the voxelmorph network
         self._grad_loss = Grad("l2", loss_mult=method_params["int_downsize"])
         self._grad_loss_weight = method_params["grad_loss_weight"]
 
@@ -237,7 +260,7 @@ class BayesNetMethod(MethodProtocol):
             Loaded atlas as a monai metatensor.
 
         """
-        regions = [BrainRegions(r) for r in self.train_dataset.labels]
+        regions = [BrainRegions[r] for r in self.train_dataset.labels]
         atlas = get_atlas_metatensor(regions).cuda()
 
         transforms = monai.transforms.Compose(

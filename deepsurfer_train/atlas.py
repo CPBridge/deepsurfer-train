@@ -59,7 +59,7 @@ DEFAULT_ATLAS_FOREGROUND_CLASSES = [
 @typechecked
 def get_atlas_metatensor(
     regions: Sequence[BrainRegions] | None = None,
-) -> monai.data.metatensor.MetaTensor:
+) -> monai.data.MetaTensor:
     """Returns an atlas in monai metatensor format.
 
     Parameters
